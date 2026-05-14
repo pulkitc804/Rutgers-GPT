@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
+import { createOllamaChatTextStream } from "@/lib/ollama-oracle";
+import { getOracleLlmMode, getOllamaBaseUrl, getOllamaModel } from "@/lib/oracle-llm-config";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { NextResponse } from "next/server";
@@ -9,7 +11,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 /** Prefer `-latest` aliases so deployed apps do not break on dated retirements. */
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
 const MAX_MSG = 24;
 const MAX_CHARS = 12_000;
 
@@ -33,10 +35,14 @@ function clampMessages(raw: ChatBody["messages"]): MessageParam[] {
 }
 
 export async function POST(req: Request) {
+  const mode = getOracleLlmMode();
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (mode === "anthropic" && !apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add apps/web/.env.local and restart dev." },
+      {
+        error:
+          "ORACLE_LLM=anthropic requires ANTHROPIC_API_KEY. Unset ORACLE_LLM to use local Ollama when no key is set, or add ANTHROPIC_API_KEY.",
+      },
       { status: 503 },
     );
   }
@@ -77,14 +83,35 @@ export async function POST(req: Request) {
 
     const anthropicMessages = normalizeAnthropicTurns([...messages.slice(0, -1), last]);
 
-    const client = new Anthropic({ apiKey });
+    if (mode === "ollama") {
+      const base = getOllamaBaseUrl();
+      const ollamaModel = getOllamaModel();
+      const ollamaMsgs: { role: "system" | "user" | "assistant"; content: string }[] = [
+        { role: "system", content: systemPrompt },
+        ...anthropicMessages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: typeof m.content === "string" ? m.content : "",
+        })),
+      ];
+      const stream = createOllamaChatTextStream(base, ollamaModel, ollamaMsgs);
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Rutgers-Gpt-Model": `ollama:${ollamaModel}`,
+        },
+      });
+    }
+
+    const client = new Anthropic({ apiKey: apiKey! });
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const s = client.messages.stream({
-            model: MODEL,
+            model: ANTHROPIC_MODEL,
             max_tokens: 2048,
             system: systemPrompt,
             messages: anthropicMessages,
@@ -108,7 +135,7 @@ export async function POST(req: Request) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
-        "X-Rutgers-Gpt-Model": MODEL,
+        "X-Rutgers-Gpt-Model": ANTHROPIC_MODEL,
       },
     });
   } catch (e) {

@@ -7,6 +7,9 @@
     "packages/*"
   ],
   "scripts": {
+    "clean": "npm run clean --workspace=@rutgers-gpt/web",
+    "dev:web": "npm run dev --workspace=@rutgers-gpt/web",
+    "build:web": "npm run build --workspace=@rutgers-gpt/web",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint"

@@ -1,5 +1,17 @@
-import { createAIProvider, type RutgersInsightContext, type TruthLayerSource } from "@rutgers-gpt/shared/ai";
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
+import { ollamaChatOnce } from "@/lib/ollama-oracle";
+import { getOracleLlmMode, getOllamaBaseUrl, getOllamaModel } from "@/lib/oracle-llm-config";
+import {
+  aggregateTruthConfidence,
+  describeTruthLayerRow,
+  formatTruthLayerBlock,
+} from "@rutgers-gpt/shared/ai/confidence";
+import {
+  createAIProvider,
+  type OracleInsightResult,
+  type RutgersInsightContext,
+  type TruthLayerSource,
+} from "@rutgers-gpt/shared/ai";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -10,10 +22,14 @@ type Body = {
 };
 
 export async function POST(req: Request) {
+  const mode = getOracleLlmMode();
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (mode === "anthropic" && !apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to apps/web env for Oracle insights." },
+      {
+        error:
+          "ORACLE_LLM=anthropic requires ANTHROPIC_API_KEY. Unset ORACLE_LLM to use local Ollama when no key is set.",
+      },
       { status: 503 },
     );
   }
@@ -31,10 +47,44 @@ export async function POST(req: Request) {
 
   try {
     const systemPrompt = await loadScarletOracleSystemPrompt();
-    const provider = createAIProvider(apiKey);
+    const sources = Array.isArray(body.truthLayerSources) ? body.truthLayerSources : [];
+    const now = new Date();
+
+    if (mode === "ollama") {
+      const truthBlock = formatTruthLayerBlock(sources, now);
+      const truthLayerRows = sources.map((s) => describeTruthLayerRow(s, now));
+      const aggregateConfidence = sources.length
+        ? aggregateTruthConfidence(truthLayerRows.map((r) => r.level))
+        : ("medium" as OracleInsightResult["aggregateConfidence"]);
+
+      const userPayload = [
+        truthBlock,
+        "",
+        "Context JSON:",
+        JSON.stringify(body.context, null, 2),
+        "",
+        "Provide actionable insights for a Rutgers student dashboard.",
+      ].join("\n");
+
+      const ollama = await ollamaChatOnce(getOllamaBaseUrl(), getOllamaModel(), [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPayload },
+      ]);
+      if (!ollama.ok) {
+        return NextResponse.json({ error: ollama.error }, { status: ollama.status });
+      }
+      const result: OracleInsightResult = {
+        text: ollama.text,
+        truthLayerRows,
+        aggregateConfidence,
+      };
+      return NextResponse.json(result);
+    }
+
+    const provider = createAIProvider(apiKey!);
     const result = await provider.getInsights(body.context, {
       systemPrompt,
-      truthLayerSources: Array.isArray(body.truthLayerSources) ? body.truthLayerSources : undefined,
+      truthLayerSources: sources.length ? sources : undefined,
     });
     return NextResponse.json(result);
   } catch (e) {
