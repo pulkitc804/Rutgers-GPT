@@ -3,7 +3,13 @@ import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
 import { createOllamaChatTextStream } from "@/lib/ollama-oracle";
-import { getOracleLlmMode, getOllamaBaseUrl, getOllamaModel } from "@/lib/oracle-llm-config";
+import {
+  getAnthropicTemperature,
+  getOracleLlmMode,
+  getOllamaBaseUrl,
+  getOllamaGenerationOptions,
+  getOllamaModel,
+} from "@/lib/oracle-llm-config";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { NextResponse } from "next/server";
@@ -93,7 +99,9 @@ export async function POST(req: Request) {
           content: typeof m.content === "string" ? m.content : "",
         })),
       ];
-      const stream = createOllamaChatTextStream(base, ollamaModel, ollamaMsgs);
+      const stream = createOllamaChatTextStream(base, ollamaModel, ollamaMsgs, {
+        generation: getOllamaGenerationOptions(),
+      });
       return new Response(stream, {
         status: 200,
         headers: {
@@ -113,6 +121,7 @@ export async function POST(req: Request) {
           const s = client.messages.stream({
             model: ANTHROPIC_MODEL,
             max_tokens: 2048,
+            temperature: getAnthropicTemperature(),
             system: systemPrompt,
             messages: anthropicMessages,
           });

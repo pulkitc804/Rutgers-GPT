@@ -1,6 +1,11 @@
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
 import { ollamaChatOnce } from "@/lib/ollama-oracle";
-import { getOracleLlmMode, getOllamaBaseUrl, getOllamaModel } from "@/lib/oracle-llm-config";
+import {
+  getOracleLlmMode,
+  getOllamaBaseUrl,
+  getOllamaGenerationOptions,
+  getOllamaModel,
+} from "@/lib/oracle-llm-config";
 import {
   aggregateTruthConfidence,
   describeTruthLayerRow,
@@ -66,10 +71,15 @@ export async function POST(req: Request) {
         "Provide actionable insights for a Rutgers student dashboard.",
       ].join("\n");
 
-      const ollama = await ollamaChatOnce(getOllamaBaseUrl(), getOllamaModel(), [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPayload },
-      ]);
+      const ollama = await ollamaChatOnce(
+        getOllamaBaseUrl(),
+        getOllamaModel(),
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPayload },
+        ],
+        { generation: getOllamaGenerationOptions() },
+      );
       if (!ollama.ok) {
         return NextResponse.json({ error: ollama.error }, { status: ollama.status });
       }

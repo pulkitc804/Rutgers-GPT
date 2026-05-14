@@ -1,5 +1,11 @@
 type OllamaChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+export type OllamaRequestOptions = {
+  signal?: AbortSignal;
+  /** Passed to Ollama as top-level `options` (temperature, num_predict, etc.). */
+  generation?: Record<string, number>;
+};
+
 /**
  * Streams Ollama `/api/chat` NDJSON into raw UTF-8 text chunks (same shape as Anthropic route).
  */
@@ -7,10 +13,11 @@ export function createOllamaChatTextStream(
   baseUrl: string,
   model: string,
   messages: OllamaChatMessage[],
-  options?: { signal?: AbortSignal },
+  requestOptions?: OllamaRequestOptions,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  const generation = requestOptions?.generation;
 
   return new ReadableStream({
     async start(controller) {
@@ -23,9 +30,10 @@ export function createOllamaChatTextStream(
             model,
             messages,
             stream: true,
+            ...(generation && Object.keys(generation).length ? { options: generation } : {}),
           }),
           cache: "no-store",
-          signal: options?.signal,
+          signal: requestOptions?.signal,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Could not reach Ollama";
@@ -98,9 +106,10 @@ export async function ollamaChatOnce(
   baseUrl: string,
   model: string,
   messages: OllamaChatMessage[],
-  options?: { signal?: AbortSignal },
+  requestOptions?: OllamaRequestOptions,
 ): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
   let res: Response;
+  const generation = requestOptions?.generation;
   try {
     res = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
@@ -109,9 +118,10 @@ export async function ollamaChatOnce(
         model,
         messages,
         stream: false,
+        ...(generation && Object.keys(generation).length ? { options: generation } : {}),
       }),
       cache: "no-store",
-      signal: options?.signal,
+      signal: requestOptions?.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not reach Ollama";

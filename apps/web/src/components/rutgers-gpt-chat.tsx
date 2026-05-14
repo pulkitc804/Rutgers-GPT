@@ -1,6 +1,7 @@
 "use client";
 
 import { buildOracleWelcomeMessage } from "@/ai/welcome-message";
+import { OracleMarkdown } from "@/components/oracle-markdown";
 import { Button } from "@/components/ui/button";
 import type { RutgersIQStoreHook, RutgersLiveDataPayload } from "@rutgers-gpt/shared";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
@@ -275,6 +276,8 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
                       <span className="text-sm">Thinking</span>
                       <TypingRow />
                     </span>
+                  ) : m.role === "assistant" && !isErr(m.content) ? (
+                    <OracleMarkdown content={m.content} />
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{m.content}</p>
                   )}
