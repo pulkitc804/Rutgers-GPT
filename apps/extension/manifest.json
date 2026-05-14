@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Rutgers-GPT",
+  "description": "Rutgers IQ — extension (monorepo).",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Open Rutgers-GPT side panel"
+  },
+  "permissions": ["sidePanel", "storage"],
+  "host_permissions": [
+    "https://rutgers.passiogo.com/*",
+    "https://passiogo.com/*",
+    "https://menuportal23.dining.rutgers.edu/*",
+    "https://classes.rutgers.edu/*",
+    "https://sis.rutgers.edu/*",
+    "https://food.rutgers.edu/*",
+    "https://go.rutgers.edu/*"
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  }
+}

@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 346.8 77.2% 49.8%;
+    --primary-foreground: 355.7 100% 97.3%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 346.8 77.2% 49.8%;
+    --radius: 0.75rem;
+    --rgpt-scarlet: #cc0033;
+    --rgpt-scarlet-glow: hsl(346 77% 42% / 0.35);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  ::selection {
+    background: hsl(346 77% 42% / 0.35);
+    color: hsl(210 40% 98%);
+  }
+}
+
+/* Ambient depth — layered mesh + subtle vignette */
+.rgpt-mesh {
+  background-color: hsl(225 44% 5%);
+  background-image:
+    radial-gradient(ellipse 100% 70% at 50% -20%, hsl(346 72% 28% / 0.55), transparent 58%),
+    radial-gradient(ellipse 55% 50% at 110% 15%, hsl(215 55% 32% / 0.2), transparent 52%),
+    radial-gradient(ellipse 50% 45% at -10% 75%, hsl(265 35% 30% / 0.14), transparent 48%),
+    radial-gradient(ellipse 80% 60% at 50% 120%, hsl(225 50% 4% / 0.9), transparent 55%);
+}
+
+.rgpt-vignette {
+  box-shadow: inset 0 0 120px hsl(0 0% 0% / 0.45);
+  pointer-events: none;
+}
+
+/* Film grain — very subtle texture */
+.rgpt-grain {
+  position: fixed;
+  inset: 0;
+  opacity: 0.035;
+  pointer-events: none;
+  z-index: 50;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+@keyframes rgpt-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.rgpt-input-shimmer {
+  background: linear-gradient(
+    105deg,
+    hsl(220 28% 12%) 0%,
+    hsl(346 35% 18%) 42%,
+    hsl(220 28% 12%) 100%
+  );
+  background-size: 200% 100%;
+  animation: rgpt-shimmer 5s ease-in-out infinite;
+}
+
+.rgpt-composer-focus:focus-within {
+  box-shadow:
+    0 0 0 1px hsl(346 77% 45% / 0.45),
+    0 0 40px -8px hsl(346 77% 35% / 0.35);
+}
+
+/* Chat transcript scrollbar */
+.rgpt-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(346 40% 35% / 0.4) transparent;
+}
+.rgpt-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.rgpt-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rgpt-scroll::-webkit-scrollbar-thumb {
+  background: hsl(346 35% 30% / 0.45);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+@keyframes rgpt-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+.rgpt-typing-dot {
+  animation: rgpt-bounce 1.1s ease-in-out infinite;
+}
+.rgpt-typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.rgpt-typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@rutgers-gpt/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./ai": "./src/ai/AIProvider.ts",
+    "./ai/confidence": "./src/ai/confidence.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "zustand": "^5.0.3"
+  },
+  "scripts": {
+    "build": "node -e \"console.log('shared: source TypeScript; consumed via transpilePackages / bundlers')\"",
+    "lint": "node -e \"console.log('lint TBD')\""
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "typescript": "^5.6.3"
+  }
+}
