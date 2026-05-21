@@ -171,7 +171,7 @@ export function RutgersDashboard(props: RutgersDashboardProps) {
       diningState = { loading: false, parsed };
       const sum = DiningService.summarizeNextMeal(parsed, 12);
       diningText = [
-        `Location: ${parsed.locationLabel} (${diningPreset.label}).`,
+        `Location: ${diningPreset.label} — ${diningPreset.campus} campus (FoodPro location ${diningPreset.locationNum}).`,
         parsed.meal ? `Meal period: ${parsed.meal}.` : "",
         parsed.dateLabel ? `Menu date: ${parsed.dateLabel}.` : "",
         sum ? `Highlights: ${sum.headline}. ${sum.detail}` : "",

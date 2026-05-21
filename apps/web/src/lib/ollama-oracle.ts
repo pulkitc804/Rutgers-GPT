@@ -1,4 +1,14 @@
-type OllamaChatMessage = { role: "system" | "user" | "assistant"; content: string };
+type OllamaChatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: { function: { name: string; arguments: Record<string, unknown> | string } }[];
+};
+
+export type OllamaRequestOptions = {
+  signal?: AbortSignal;
+  /** Passed to Ollama as top-level `options` (temperature, num_predict, etc.). */
+  generation?: Record<string, number>;
+};
 
 /**
  * Streams Ollama `/api/chat` NDJSON into raw UTF-8 text chunks (same shape as Anthropic route).
@@ -7,10 +17,11 @@ export function createOllamaChatTextStream(
   baseUrl: string,
   model: string,
   messages: OllamaChatMessage[],
-  options?: { signal?: AbortSignal },
+  requestOptions?: OllamaRequestOptions,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  const generation = requestOptions?.generation;
 
   return new ReadableStream({
     async start(controller) {
@@ -23,9 +34,10 @@ export function createOllamaChatTextStream(
             model,
             messages,
             stream: true,
+            ...(generation && Object.keys(generation).length ? { options: generation } : {}),
           }),
           cache: "no-store",
-          signal: options?.signal,
+          signal: requestOptions?.signal,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Could not reach Ollama";
@@ -94,13 +106,22 @@ export function createOllamaChatTextStream(
   });
 }
 
-export async function ollamaChatOnce(
+export type OllamaChatResponse = {
+  message?: {
+    role?: string;
+    content?: string;
+    tool_calls?: { function: { name: string; arguments: Record<string, unknown> | string } }[];
+  };
+};
+
+export async function ollamaChatRaw(
   baseUrl: string,
   model: string,
   messages: OllamaChatMessage[],
-  options?: { signal?: AbortSignal },
-): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
+  requestOptions?: OllamaRequestOptions & { tools?: unknown[] },
+): Promise<{ ok: true; data: OllamaChatResponse } | { ok: false; status: number; error: string }> {
   let res: Response;
+  const generation = requestOptions?.generation;
   try {
     res = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
@@ -109,9 +130,49 @@ export async function ollamaChatOnce(
         model,
         messages,
         stream: false,
+        ...(requestOptions?.tools ? { tools: requestOptions.tools } : {}),
+        ...(generation && Object.keys(generation).length ? { options: generation } : {}),
       }),
       cache: "no-store",
-      signal: options?.signal,
+      signal: requestOptions?.signal,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not reach Ollama";
+    return { ok: false, status: 503, error: `${msg}. Is Ollama running?` };
+  }
+
+  const raw = await res.text();
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: raw.slice(0, 800) || `HTTP ${res.status}` };
+  }
+
+  try {
+    return { ok: true, data: JSON.parse(raw) as OllamaChatResponse };
+  } catch {
+    return { ok: false, status: 502, error: "Invalid JSON from Ollama" };
+  }
+}
+
+export async function ollamaChatOnce(
+  baseUrl: string,
+  model: string,
+  messages: OllamaChatMessage[],
+  requestOptions?: OllamaRequestOptions,
+): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
+  let res: Response;
+  const generation = requestOptions?.generation;
+  try {
+    res = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+        ...(generation && Object.keys(generation).length ? { options: generation } : {}),
+      }),
+      cache: "no-store",
+      signal: requestOptions?.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not reach Ollama";
