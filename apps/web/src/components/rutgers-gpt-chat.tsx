@@ -1,13 +1,27 @@
 "use client";
 
 import { buildOracleWelcomeMessage } from "@/ai/welcome-message";
+import { buildStudentProfileFromStore } from "@/lib/build-student-profile";
 import { OracleMarkdown } from "@/components/oracle-markdown";
 import { Button } from "@/components/ui/button";
 import type { RutgersIQStoreHook, RutgersLiveDataPayload } from "@rutgers-gpt/shared";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import type { TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bus, GraduationCap, HeartPulse, Loader2, SendHorizontal, Sparkles, Utensils } from "lucide-react";
+import {
+  BookmarkPlus,
+  Bus,
+  Check,
+  Copy,
+  GraduationCap,
+  HeartPulse,
+  Loader2,
+  Reply,
+  SendHorizontal,
+  Sparkles,
+  Utensils,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
@@ -57,7 +71,7 @@ const QUICK_ACTIONS: { id: string; label: string; icon: typeof Bus; prompt: stri
     label: "Dining",
     icon: Utensils,
     prompt:
-      "From the dining snapshot only: what meal period and stations look relevant today? If there is no menu data, say so and suggest opening the official dining portal.",
+      "Call get_dining_menu (or use the dining snapshot). State hall name and campus only from verified.campus / snapshot text — never guess. If no menu data, say so and link menuportal23.dining.rutgers.edu.",
   },
   {
     id: "class",
@@ -65,6 +79,13 @@ const QUICK_ACTIONS: { id: string; label: string; icon: typeof Bus; prompt: stri
     icon: GraduationCap,
     prompt:
       "From the academic snapshot only: when and where is my next meeting for the configured course? If SOC returned nothing, explain what to fix (subject/number/term).",
+  },
+  {
+    id: "plan-fall",
+    label: "Plan schedule",
+    icon: GraduationCap,
+    prompt:
+      "Help me plan my Fall 2026 schedule using my saved courses in Agent Memory. Use plan_term_schedule — SOC sections, weekly grid, credits, and registration steps. I can be any major including double major.",
   },
   {
     id: "wellness",
@@ -93,24 +114,24 @@ type Props = {
 
 export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
   const displayName = useStore((s) => s.displayName);
+  const favoriteStopId = useStore((s) => s.favoriteStopId);
+  const demoSubject = useStore((s) => s.demoSubject);
+  const demoCourseNumber = useStore((s) => s.demoCourseNumber);
+  const diningLocationId = useStore((s) => s.diningLocationId);
+  const addMemoryFact = useStore((s) => s.addMemoryFact);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   messagesRef.current = messages;
 
   const welcome = useMemo(() => {
-    return buildOracleWelcomeMessage(
-      {
-        displayName: displayName || undefined,
-        transitLine: live?.busText?.slice(0, 160),
-        diningLine: live?.diningText?.includes("Highlights") ? live.diningText.split("Highlights:")[1]?.slice(0, 120) : undefined,
-      },
-      new Date(),
-    );
-  }, [displayName, live]);
+    return buildOracleWelcomeMessage({ displayName: displayName || undefined }, new Date());
+  }, [displayName]);
 
   useEffect(() => {
     setMessages((prev) => {
@@ -136,10 +157,33 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
 
+  const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
+    const text = content.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(messageId);
+      window.setTimeout(() => setCopiedId((id) => (id === messageId ? null : id)), 2000);
+    } catch {
+      /* clipboard denied */
+    }
+  }, []);
+
+  const handleReplyToMessage = useCallback((message: ChatMessage) => {
+    setReplyTo(message);
+    textareaRef.current?.focus();
+  }, []);
+
   const sendWithText = useCallback(
     async (text: string) => {
-      const trimmed = text.trim();
+      let trimmed = text.trim();
       if (!trimmed || sending) return;
+
+      if (replyTo?.content.trim()) {
+        const excerpt = replyTo.content.trim().slice(0, 900);
+        trimmed = `[Follow-up to your previous reply]\n\nPrior answer (excerpt):\n${excerpt}${replyTo.content.length > 900 ? "…" : ""}\n\n---\n\n${trimmed}`;
+        setReplyTo(null);
+      }
 
       const userMsg: ChatMessage = { id: uid(), role: "user", content: trimmed };
       const assistantId = uid();
@@ -158,6 +202,7 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
             messages: historyForApi,
             context: buildContextFromLive(live),
             truthLayerSources: truthSourcesFromLive(live),
+            studentProfile: buildStudentProfileFromStore(useStore),
           }),
         });
 
@@ -202,8 +247,13 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
         setSending(false);
       }
     },
-    [live, sending],
+    [live, replyTo, sending, useStore],
   );
+
+  const handleRemember = (content: string) => {
+    const line = content.split("\n").find((l) => l.trim().length > 20)?.trim().slice(0, 240);
+    if (line) addMemoryFact(line);
+  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -277,7 +327,68 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
                       <TypingRow />
                     </span>
                   ) : m.role === "assistant" && !isErr(m.content) ? (
-                    <OracleMarkdown content={m.content} />
+                    <>
+                      <OracleMarkdown content={m.content} />
+                      {m.content.length > 0 && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-2.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2.5 text-[11px] text-zinc-400 hover:text-zinc-100"
+                            onClick={() => void handleCopyMessage(m.id, m.content)}
+                            aria-label="Copy response"
+                          >
+                            {copiedId === m.id ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" aria-hidden />
+                            )}
+                            {copiedId === m.id ? "Copied" : "Copy"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2.5 text-[11px] text-zinc-400 hover:text-[#ffb3c7]"
+                            onClick={() => handleReplyToMessage(m)}
+                            disabled={sending}
+                            aria-label="Reply to this response"
+                          >
+                            <Reply className="h-3.5 w-3.5" aria-hidden />
+                            Reply
+                          </Button>
+                          {m.id !== "welcome" && m.content.length > 40 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1.5 px-2.5 text-[11px] text-zinc-500 hover:text-[#ffb3c7]"
+                              onClick={() => handleRemember(m.content)}
+                            >
+                              <BookmarkPlus className="h-3.5 w-3.5" aria-hidden />
+                              Remember
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : m.role === "assistant" && isErr(m.content) ? (
+                    <>
+                      <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-500/20 pt-2.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2.5 text-[11px]"
+                          onClick={() => void handleCopyMessage(m.id, m.content)}
+                        >
+                          {copiedId === m.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                          {copiedId === m.id ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </>
                   ) : (
                     <p className="whitespace-pre-wrap break-words">{m.content}</p>
                   )}
@@ -289,6 +400,25 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
         </div>
 
         <form onSubmit={onSubmit} className="border-t border-white/[0.07] p-3 md:p-4">
+          {replyTo ? (
+            <div className="mb-2 flex items-start gap-2 rounded-xl border border-[#cc0033]/25 bg-[#cc0033]/10 px-3 py-2 text-[12px] text-zinc-200">
+              <Reply className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ff9eb0]" aria-hidden />
+              <p className="min-w-0 flex-1 leading-snug">
+                <span className="font-semibold text-[#ffb3c7]">Replying to assistant</span>
+                <span className="text-zinc-400"> — </span>
+                {replyTo.content.trim().slice(0, 120)}
+                {replyTo.content.length > 120 ? "…" : ""}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 rounded-md p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                onClick={() => setReplyTo(null)}
+                aria-label="Cancel reply"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : null}
           <div className="rgpt-composer-focus rgpt-input-shimmer relative flex items-end gap-2 rounded-[1.15rem] border border-white/[0.1] p-1.5 transition-shadow duration-300">
             <div className="pointer-events-none absolute inset-0 rounded-[1.15rem] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" aria-hidden />
             <Sparkles className="mb-3 ml-2.5 h-5 w-5 shrink-0 text-[#ffb3c7]" aria-hidden />
@@ -319,7 +449,7 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
             </Button>
           </div>
           <p className="mt-2.5 text-center text-[11px] leading-relaxed text-zinc-600">
-            Shift+Enter for a new line. Rutgers GPT refuses graded work and won’t invent live times without a refreshed campus snapshot.
+            Scarlet Oracle agent can pull live buses, dining, and SOC on demand. Shift+Enter for a new line. No graded work; no invented ETAs.
           </p>
         </form>
       </div>

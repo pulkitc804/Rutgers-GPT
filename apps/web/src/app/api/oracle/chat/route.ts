@@ -1,23 +1,24 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
-import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
-import { createOllamaChatTextStream } from "@/lib/ollama-oracle";
-import {
-  getAnthropicTemperature,
-  getOracleLlmMode,
-  getOllamaBaseUrl,
-  getOllamaGenerationOptions,
-  getOllamaModel,
-} from "@/lib/oracle-llm-config";
+import { buildExecutionContract } from "@/lib/agent-execution-contract";
+import { detectActionIntent } from "@/lib/detect-action-intent";
+import { formatDirectScheduleResponse } from "@/lib/format-direct-schedule-response";
+import { runRutgersOracleAgentStream } from "@/lib/oracle-agent";
+import type { PrefetchedToolResult } from "@/lib/oracle-agent";
+import { getOracleLlmMode, useDirectScheduleRender } from "@/lib/oracle-llm-config";
+import { resolveTermPlan } from "@/lib/resolve-term-plan";
+import { runRutgersAgentTool } from "@/lib/rutgers-tool-runner";
+import { wantsCsFirstYearTemplate } from "@rutgers-gpt/shared/ai/course-parser";
+import { formatRagHitsForAgent, searchRutgersKnowledge } from "@/lib/rutgers-rag/search";
+import { rerankWithOllamaEmbeddings } from "@/lib/rutgers-rag/embed-ollama";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
+import { detectVerifiedTopics, formatVerifiedFactsBlock } from "@rutgers-gpt/shared/ai/verified-sources";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
+import type { RutgersStudentProfile } from "@rutgers-gpt/shared/ai/student-profile";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-/** Prefer `-latest` aliases so deployed apps do not break on dated retirements. */
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
 const MAX_MSG = 24;
 const MAX_CHARS = 12_000;
 
@@ -25,6 +26,7 @@ type ChatBody = {
   messages?: { role: "user" | "assistant"; content: string }[];
   context?: RutgersInsightContext;
   truthLayerSources?: TruthLayerSource[];
+  studentProfile?: RutgersStudentProfile;
 };
 
 function clampMessages(raw: ChatBody["messages"]): MessageParam[] {
@@ -38,6 +40,22 @@ function clampMessages(raw: ChatBody["messages"]): MessageParam[] {
     out.push({ role: m.role, content: c });
   }
   return out;
+}
+
+function textToStream(text: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
+}
+
+function termLabelFromCode(term: number): string {
+  if (term === 1) return "Spring";
+  if (term === 7) return "Summer";
+  return "Fall";
 }
 
 export async function POST(req: Request) {
@@ -70,73 +88,138 @@ export async function POST(req: Request) {
     const sources = Array.isArray(body.truthLayerSources) ? body.truthLayerSources : [];
     const truthBlock = formatTruthLayerBlock(sources);
 
-    const last = { ...messages[messages.length - 1] } as MessageParam;
-    if (last.role === "user" && body.context && typeof body.context === "object") {
-      const ctx = JSON.stringify(body.context, null, 2);
-      last.content = [
-        truthBlock,
-        "",
-        "Live campus context (JSON — use only for factual Rutgers claims; do not treat as the user's voice):",
-        ctx,
-        "",
-        "---",
-        "",
-        typeof last.content === "string" ? last.content : "",
-      ].join("\n");
-    } else if (last.role === "user") {
-      last.content = [truthBlock, "", typeof last.content === "string" ? last.content : ""].join("\n");
+    const lastMsg = messages[messages.length - 1];
+    const lastRaw = typeof lastMsg?.content === "string" ? lastMsg.content : "";
+    const intent = detectActionIntent(lastRaw);
+
+    const contextParts: string[] = [];
+    const prefetchedTools: PrefetchedToolResult[] = [];
+
+    const verifiedTopics = detectVerifiedTopics(lastRaw);
+    if (verifiedTopics.length) {
+      const verifiedBlock = formatVerifiedFactsBlock(verifiedTopics);
+      if (verifiedBlock) contextParts.push(verifiedBlock);
     }
 
-    const anthropicMessages = normalizeAnthropicTurns([...messages.slice(0, -1), last]);
+    if (body.context && typeof body.context === "object") {
+      contextParts.push(
+        "Cached live campus snapshot (may be stale — prefer prefetched tools / fresh tool calls):",
+        JSON.stringify(body.context, null, 2),
+      );
+    }
 
-    if (mode === "ollama") {
-      const base = getOllamaBaseUrl();
-      const ollamaModel = getOllamaModel();
-      const ollamaMsgs: { role: "system" | "user" | "assistant"; content: string }[] = [
-        { role: "system", content: systemPrompt },
-        ...anthropicMessages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: typeof m.content === "string" ? m.content : "",
-        })),
-      ];
-      const stream = createOllamaChatTextStream(base, ollamaModel, ollamaMsgs, {
-        generation: getOllamaGenerationOptions(),
+    if (
+      /\b(campus|building|hours|library|canvas|policy|atrium|dining|meal|food|livi|livingston|busch|cook|douglass|college ave|degree|major)\b/i.test(
+        lastRaw,
+      )
+    ) {
+      let hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
+      hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
+      if (hits.length) {
+        contextParts.push("RUTGERS_KNOWLEDGE (RAG — cite when relevant):", formatRagHitsForAgent(hits));
+      }
+    }
+
+    let directScheduleText: string | null = null;
+    const planIntent = intent.schedule;
+    if (planIntent.match && planIntent.year != null && planIntent.term) {
+      const plan = await resolveTermPlan({
+        year: planIntent.year,
+        term: planIntent.term,
+        campus: "NB",
+        courses: planIntent.coursesInMessage,
+        track: wantsCsFirstYearTemplate(lastRaw) ? "cs-first-year" : undefined,
+        profile: body.studentProfile,
+        userMessage: lastRaw,
       });
-      return new Response(stream, {
+
+      const brief =
+        "studentBrief" in plan && typeof plan.studentBrief === "string"
+          ? plan.studentBrief
+          : "error" in plan
+            ? String(plan.error)
+            : JSON.stringify(plan).slice(0, 4000);
+
+      const planCourses =
+        "courses" in plan && Array.isArray(plan.courses) ? (plan.courses as { found?: boolean }[]) : [];
+      const socFound = planCourses.filter((c) => c.found).length;
+      const termCode = "term" in plan && typeof plan.term === "number" ? plan.term : 9;
+
+      if (mode === "ollama" && useDirectScheduleRender()) {
+        directScheduleText = formatDirectScheduleResponse({
+          brief,
+          socFound,
+          totalCourses: planCourses.length,
+          year: planIntent.year,
+          termLabel: termLabelFromCode(termCode),
+        });
+      } else {
+        contextParts.push(
+          "PRECOMPUTED_SOC_PLAN (mandatory — include section numbers and weekly grid when present):",
+          brief,
+        );
+        if (socFound > 0) {
+          contextParts.push(
+            `SOC_PLAN_REPLY_RULES: Live SOC returned sections for ${socFound}/${planCourses.length} courses. Synthesize intelligently for this student — include weekly grid and section examples from the plan. Explain SOC briefly if they seem unsure.`,
+          );
+        } else {
+          contextParts.push(
+            "SOC_PLAN_REPLY_RULES: No SOC sections — explain SOC, then honest next steps with per-course SOC links; no invented meeting times.",
+          );
+        }
+      }
+
+      prefetchedTools.push({ name: "plan_term_schedule", content: JSON.stringify(plan).slice(0, 12_000) });
+    }
+
+    const toolCtx = { profile: body.studentProfile, liveSnapshot: body.context };
+
+    if (intent.dining && !intent.schedule.match) {
+      const dining = await runRutgersAgentTool(
+        "get_dining_menu",
+        { locationId: body.studentProfile?.diningLocationId },
+        toolCtx,
+      );
+      prefetchedTools.push({ name: "get_dining_menu", content: dining });
+    }
+
+    if (intent.transit) {
+      const transit = await runRutgersAgentTool("get_live_transit", {}, toolCtx);
+      prefetchedTools.push({ name: "get_live_transit", content: transit });
+    }
+
+    const executionContract = buildExecutionContract(intent, {
+      hasPrecomputedPlan: intent.schedule.match,
+    });
+
+    const lastUserContent = [...contextParts, "", "---", "", lastRaw].join("\n");
+
+    if (directScheduleText) {
+      return new Response(textToStream(directScheduleText), {
         status: 200,
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-store",
-          "X-Rutgers-Gpt-Model": `ollama:${ollamaModel}`,
+          "X-Rutgers-Gpt-Model": `ollama:direct-soc`,
+          "X-Rutgers-Gpt-Agent": "scarlet-oracle-v1",
         },
       });
     }
 
-    const client = new Anthropic({ apiKey: apiKey! });
+    const chatTurns = messages.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : "",
+    }));
 
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          const s = client.messages.stream({
-            model: ANTHROPIC_MODEL,
-            max_tokens: 2048,
-            temperature: getAnthropicTemperature(),
-            system: systemPrompt,
-            messages: anthropicMessages,
-          });
-          for await (const event of s) {
-            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              controller.enqueue(encoder.encode(event.delta.text));
-            }
-          }
-          controller.close();
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Stream failed";
-          controller.enqueue(encoder.encode(`\n\n[Error: ${msg}]`));
-          controller.close();
-        }
-      },
+    const { stream, modelHeader } = await runRutgersOracleAgentStream({
+      systemPrompt,
+      messages: chatTurns,
+      profile: body.studentProfile,
+      liveSnapshot: body.context,
+      truthBlock,
+      lastUserContent,
+      executionContract,
+      prefetchedTools,
     });
 
     return new Response(stream, {
@@ -144,7 +227,8 @@ export async function POST(req: Request) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
-        "X-Rutgers-Gpt-Model": ANTHROPIC_MODEL,
+        "X-Rutgers-Gpt-Model": modelHeader,
+        "X-Rutgers-Gpt-Agent": "scarlet-oracle-v1",
       },
     });
   } catch (e) {

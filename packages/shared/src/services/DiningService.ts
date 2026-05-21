@@ -7,22 +7,60 @@ export const FOOD_RUTGERS_RETAIL_MENUS = "https://food.rutgers.edu/places-eat/re
 
 export type DiningLocationPreset = {
   id: string;
+  /** Human label shown to students and the agent */
   label: string;
   menuUrl: string;
+  /** Canonical campus assignment — do not infer from LLM memory */
+  campus: "Cook/Douglass" | "Livingston" | "Busch" | "College Avenue";
+  locationNum: string;
+  primarySourceUrl: string;
 };
 
 export const DEFAULT_DINING_LOCATIONS: DiningLocationPreset[] = [
   {
     id: "atrium",
-    label: "The Atrium (Cook/Douglass · New Brunswick)",
+    label: "The Atrium",
+    campus: "College Avenue",
+    locationNum: "13",
     menuUrl: `${MENU_PORTAL_BASE}/FoodPronet/pickmenu.aspx?sName=Rutgers+University+Dining&locationNum=13&locationName=The+Atrium&naFlag=1`,
+    primarySourceUrl: `${MENU_PORTAL_BASE}/FoodPronet/pickmenu.aspx?sName=Rutgers+University+Dining&locationNum=13&locationName=The+Atrium&naFlag=1`,
   },
   {
     id: "livingston-dining",
     label: "Livingston Dining Commons",
+    campus: "Livingston",
+    locationNum: "04",
     menuUrl: `${MENU_PORTAL_BASE}/FoodPronet/pickmenu.aspx?sName=Rutgers+University+Dining&locationNum=04&locationName=Livingston+Dining+Commons&naFlag=1`,
+    primarySourceUrl: `${MENU_PORTAL_BASE}/FoodPronet/pickmenu.aspx?sName=Rutgers+University+Dining&locationNum=04&locationName=Livingston+Dining+Commons&naFlag=1`,
   },
 ];
+
+/** Agent-safe dining summary: canonical campus from preset, menu from live HTML only */
+export function buildVerifiedDiningSnapshot(
+  preset: DiningLocationPreset,
+  parsed: ParsedDayMenu,
+  summary: { headline: string; detail: string },
+): {
+  hallName: string;
+  campus: string;
+  primarySourceUrl: string;
+  mealPeriod: string | null;
+  menuDate: string | undefined;
+  highlights: string;
+  stationCount: number;
+  dataSource: string;
+} {
+  return {
+    hallName: preset.label,
+    campus: preset.campus,
+    primarySourceUrl: preset.primarySourceUrl,
+    mealPeriod: parsed.meal,
+    menuDate: parsed.dateLabel,
+    highlights: summary.headline ? `${summary.headline}. ${summary.detail}` : summary.detail,
+    stationCount: parsed.stations.filter((s) => s.items.length).length,
+    dataSource: "Rutgers Dining FoodPro (live HTML fetch via official menu URL)",
+  };
+}
 
 export type MealPeriod = string;
 

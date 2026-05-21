@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const SOC_BASE = "https://sis.rutgers.edu/soc/api/courses.json";
+const SOC_BASE = "https://classes.rutgers.edu/soc/api/courses.json";
 
 /** Server-side SOC proxy — avoids browser CORS on localhost. */
 export async function GET(req: Request) {

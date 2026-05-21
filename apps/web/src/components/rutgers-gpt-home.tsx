@@ -2,6 +2,7 @@
 
 import { createRutgersIQStore, RutgersDashboard, type RutgersLiveDataPayload } from "@rutgers-gpt/shared";
 import { createWebRutgersTransport } from "@/lib/rutgers-web-transport";
+import { RutgersAgentMemoryPanel } from "@/components/rutgers-agent-memory-panel";
 import { RutgersCampusSettings } from "@/components/rutgers-campus-settings";
 import { RutgersGptChat } from "@/components/rutgers-gpt-chat";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export function RutgersGptHome() {
               <p className="bg-gradient-to-r from-white via-white to-zinc-400 bg-clip-text text-[15px] font-semibold leading-tight tracking-tight text-transparent">
                 Rutgers GPT
               </p>
-              <p className="mt-1 text-[11px] leading-snug text-zinc-500">Transit, dining, classes — one chat.</p>
+              <p className="mt-1 text-[11px] leading-snug text-zinc-500">Your Rutgers agent — buses, dining, classes, wellness.</p>
             </div>
           </div>
 
@@ -213,6 +214,7 @@ export function RutgersGptHome() {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto rgpt-scroll">
                   <div className="space-y-5 p-5">
+                    <RutgersAgentMemoryPanel useStore={useRutgersIQStore} />
                     <RutgersCampusSettings useStore={useRutgersIQStore} />
                     <div className="overflow-hidden rounded-2xl border border-white/[0.08] ring-1 ring-black/40">
                       <RutgersDashboard

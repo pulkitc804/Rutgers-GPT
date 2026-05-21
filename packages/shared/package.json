@@ -9,7 +9,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./ai": "./src/ai/AIProvider.ts",
-    "./ai/confidence": "./src/ai/confidence.ts"
+    "./ai/confidence": "./src/ai/confidence.ts",
+    "./ai/agent-tools": "./src/ai/agent-tools.ts",
+    "./ai/agent-runtime": "./src/ai/agent-runtime.ts",
+    "./ai/student-profile": "./src/ai/student-profile.ts",
+    "./ai/student-memory": "./src/ai/student-memory.ts",
+    "./ai/course-parser": "./src/ai/course-parser.ts",
+    "./ai/cs-first-year-nb": "./src/ai/cs-first-year-nb.ts",
+    "./ai/planner-types": "./src/ai/planner-types.ts",
+    "./ai/nb-scope": "./src/ai/nb-scope.ts",
+    "./ai/verified-sources": "./src/ai/verified-sources.ts"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

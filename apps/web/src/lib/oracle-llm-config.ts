@@ -25,24 +25,29 @@ export function getOllamaModel(): string {
   return (process.env.OLLAMA_MODEL ?? "llama3.2").trim() || "llama3.2";
 }
 
-/** Lower = more focused/deterministic (good for campus facts). Override with `OLLAMA_TEMPERATURE`. */
+function readEnvNumber(key: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[key]?.trim();
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Tuned for tool use + factual campus answers (override via .env.local). */
 export function getOllamaGenerationOptions(): Record<string, number> {
-  const out: Record<string, number> = {};
-  const tRaw = process.env.OLLAMA_TEMPERATURE?.trim();
-  if (tRaw !== undefined && tRaw !== "") {
-    const n = Number(tRaw);
-    if (!Number.isNaN(n)) out.temperature = Math.min(2, Math.max(0, n));
-  } else {
-    out.temperature = 0.35;
-  }
-  const npRaw = process.env.OLLAMA_NUM_PREDICT?.trim();
-  if (npRaw !== undefined && npRaw !== "") {
-    const n = Math.floor(Number(npRaw));
-    if (!Number.isNaN(n) && n > 0) out.num_predict = n;
-  } else {
-    out.num_predict = 2048;
-  }
-  return out;
+  return {
+    temperature: readEnvNumber("OLLAMA_TEMPERATURE", 0.2, 0, 1.5),
+    num_predict: Math.floor(readEnvNumber("OLLAMA_NUM_PREDICT", 2048, 256, 8192)),
+    num_ctx: Math.floor(readEnvNumber("OLLAMA_NUM_CTX", 8192, 2048, 32768)),
+    top_p: readEnvNumber("OLLAMA_TOP_P", 0.9, 0.1, 1),
+    repeat_penalty: readEnvNumber("OLLAMA_REPEAT_PENALTY", 1.12, 1, 1.5),
+  };
+}
+
+/** When true, schedule skips the LLM and pastes the planner markdown only (feels like a bot). Default off. */
+export function useDirectScheduleRender(): boolean {
+  const v = (process.env.OLLAMA_DIRECT_SCHEDULE ?? "0").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
 }
 
 export function getAnthropicTemperature(): number {

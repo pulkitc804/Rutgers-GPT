@@ -1,7 +1,8 @@
 /**
  * Rutgers Schedule of Classes JSON (sis.rutgers.edu → classes.rutgers.edu).
  */
-export const SOC_JSON_URL = "https://sis.rutgers.edu/soc/api/courses.json";
+/** Primary SOC JSON host (sis.rutgers.edu redirects here). */
+export const SOC_JSON_URL = "https://classes.rutgers.edu/soc/api/courses.json";
 
 export type SocTermCode = 0 | 1 | 7 | 9;
 
@@ -148,11 +149,42 @@ export const AcademicService = {
 
   async fetchCourses(q: SocCourseQuery): Promise<SocCourse[]> {
     const qs = this.buildQueryString(q);
-    const res = await fetch(`${SOC_JSON_URL}?${qs}`, { credentials: "omit" });
-    if (!res.ok) throw new Error(`SOC request failed: ${res.status}`);
-    const data = (await res.json()) as SocCourse[];
-    if (!Array.isArray(data)) throw new Error("SOC response was not a course array");
-    return this.filterCoursesToQuery(data, q);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 28_000);
+    try {
+      const res = await fetch(`${SOC_JSON_URL}?${qs}`, {
+        credentials: "omit",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "RutgersGPT/1.0 (SOC schedule planner; +https://rutgers.edu)",
+        },
+      });
+      if (!res.ok) throw new Error(`SOC request failed: ${res.status}`);
+      const data = (await res.json()) as SocCourse[];
+      if (!Array.isArray(data)) throw new Error("SOC response was not a course array");
+      return this.filterCoursesToQuery(data, q);
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        throw new Error("SOC request timed out — try again or open SOC in your browser");
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+
+  socCourseWebUrl(q: SocCourseQuery): string {
+    const p = new URLSearchParams({
+      year: String(q.year),
+      term: String(q.term),
+      subject: q.subject,
+    });
+    if (q.campus) p.set("campus", q.campus);
+    if (q.courseNumber) p.set("courseNumber", q.courseNumber);
+    if (q.level) p.set("level", q.level);
+    return `https://sims.rutgers.edu/soc/#${p.toString()}`;
   },
 
   findNextMeeting(courses: SocCourse[], now = new Date()): NormalizedMeeting | null {
