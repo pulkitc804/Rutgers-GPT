@@ -23,31 +23,28 @@ const SOURCES = [
   { slug: "summer-session", title: "Rutgers Summer Session", url: "https://summersession.rutgers.edu/" },
   { slug: "winter-session", title: "Rutgers Winter Session", url: "https://wintersession.rutgers.edu/" },
   { slug: "registrar", title: "Office of the Registrar", url: "https://scarlethub.rutgers.edu/registrar/" },
-  { slug: "registration-webreg", title: "Registration & WebReg", url: "https://scarlethub.rutgers.edu/registrar/registration-information/" },
   { slug: "transcripts", title: "Transcripts & Records", url: "https://scarlethub.rutgers.edu/registrar/transcripts/" },
   // Money
   { slug: "financial-aid", title: "Financial Aid (NB)", url: "https://financialaid.rutgers.edu/" },
-  { slug: "tuition-fees", title: "Tuition & Fees", url: "https://scarlethub.rutgers.edu/financial-services/tuition-and-fees/" },
-  { slug: "billing-payments", title: "Billing & Payments", url: "https://scarlethub.rutgers.edu/financial-services/payment-options/" },
+  { slug: "financial-services", title: "Financial Services Hub", url: "https://scarlethub.rutgers.edu/financial-services/" },
+  { slug: "tuition-fees", title: "Tuition & Fees", url: "https://finance.rutgers.edu/student-abc/tuition-fees" },
+  { slug: "billing-payments", title: "Billing & Payments", url: "https://finance.rutgers.edu/student-abc/payments" },
+  { slug: "payment-plans", title: "Tuition Payment Plans", url: "https://finance.rutgers.edu/student-abc/payments/rutgers-tuition-payment-plans" },
+  { slug: "refunds", title: "Refunds", url: "https://finance.rutgers.edu/student-abc/refunds" },
   // Dining
   { slug: "dining-home", title: "Rutgers Dining Services", url: "https://food.rutgers.edu/" },
-  { slug: "dining-halls", title: "Dining Halls & Hours", url: "https://food.rutgers.edu/dining-halls/" },
-  { slug: "meal-plans", title: "Meal Plans", url: "https://food.rutgers.edu/meal-plan/" },
+  { slug: "dining-about", title: "About Rutgers Dining", url: "https://food.rutgers.edu/about-us/learn-more-about-rutgers-dining" },
   // Transit / parking
-  { slug: "transit-routes", title: "Campus Bus Routes", url: "https://ipo.rutgers.edu/dots/campus-buses" },
   { slug: "parking", title: "Parking (DOTS)", url: "https://ipo.rutgers.edu/dots" },
-  { slug: "parking-permits", title: "Student Parking Permits", url: "https://ipo.rutgers.edu/dots/student-permits" },
   // Tech
-  { slug: "netid", title: "NetID & Accounts", url: "https://netid.rutgers.edu/" },
   { slug: "it-help", title: "Rutgers IT Help", url: "https://it.rutgers.edu/help-support/" },
   { slug: "canvas-help", title: "Canvas Help", url: "https://canvas.rutgers.edu/" },
   // Libraries
   { slug: "libraries-home", title: "Rutgers University Libraries", url: "https://www.libraries.rutgers.edu/" },
-  { slug: "library-hours", title: "Library Hours", url: "https://www.libraries.rutgers.edu/visit-us/hours" },
   // Advising / academics support
-  { slug: "sas-advising", title: "SAS Undergraduate Advising", url: "https://sasundergrad.rutgers.edu/advising/get-advised" },
+  { slug: "student-success", title: "Student Success / Tutoring", url: "https://success.rutgers.edu/" },
   { slug: "learning-centers", title: "Learning Centers / Tutoring", url: "https://rlc.rutgers.edu/" },
-  { slug: "academic-policies", title: "Academic Policies", url: "https://scarlethub.rutgers.edu/registrar/academic-policies-and-procedures/" },
+  { slug: "nb-academics", title: "New Brunswick Academics", url: "https://newbrunswick.rutgers.edu/academics" },
   // Housing / life
   { slug: "housing", title: "On-Campus Housing", url: "https://ruoncampus.rutgers.edu/" },
   { slug: "residence-life", title: "Residence Life", url: "https://reslife.rutgers.edu/" },
