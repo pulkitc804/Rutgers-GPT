@@ -13,6 +13,7 @@ export const RUTGERS_AGENT_TOOL_NAMES = [
   "plan_term_schedule",
   "plan_multi_course_schedule",
   "search_rutgers_knowledge",
+  "search_rutgers_web",
   "get_canvas_guidance",
   "get_campus_events",
   "get_campus_info",
@@ -41,6 +42,19 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
           enum: NB_SUBCAMPUS_ENUM,
           description: "Optional NB sub-campus filter",
         },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_rutgers_web",
+    description:
+      "Look up OFFICIAL Rutgers–New Brunswick info that is NOT in the local knowledge base — academic calendar & deadlines (e.g. Summer Session dates), registrar, financial aid, tuition/fees, parking, libraries, IT/NetID, advising, health, housing, graduation. Fetches the official rutgers.edu page live. Use this whenever the student asks about dates, deadlines, offices, or policies you don't already have verified data for, instead of saying you don't know.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look up, e.g. 'summer session 2 dates' or 'spring add/drop deadline'" },
       },
       required: ["query"],
       additionalProperties: false,
