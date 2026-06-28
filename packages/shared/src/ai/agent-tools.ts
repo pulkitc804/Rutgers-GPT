@@ -50,7 +50,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "search_rutgers_web",
     description:
-      "Look up OFFICIAL Rutgers–New Brunswick info that is NOT in the local knowledge base — academic calendar & deadlines (e.g. Summer Session dates), registrar, financial aid, tuition/fees, parking, libraries, IT/NetID, advising, health, housing, graduation. Fetches the official rutgers.edu page live. Use this whenever the student asks about dates, deadlines, offices, or policies you don't already have verified data for, instead of saying you don't know.",
+      "Fetch an official rutgers.edu page live for dates/deadlines/offices/policies (academic calendar, registrar, financial aid, tuition, parking, libraries, IT, advising, health, housing). Use BEFORE saying you don't know an official detail.",
     parameters: {
       type: "object",
       properties: {
@@ -76,7 +76,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "get_dining_menu",
     description:
-      "Fetch today's menu from Rutgers Dining FoodPro (official menuportal23 HTML). Returns verified.campus from the preset registry — use that for location, not model memory. Presets: atrium (College Avenue / College Ave Student Center), livingston-dining (Livingston).",
+      "Today's FoodPro menu. Use verified.campus for location (not memory). Presets: atrium (College Avenue), livingston-dining (Livingston).",
     parameters: {
       type: "object",
       properties: {
@@ -106,7 +106,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "plan_term_schedule",
     description:
-      "Universal term schedule planner for ANY major and ANY year. Fetches live SOC for each course, builds conflict-aware weekly grid. Uses student profile course list + optional courses arg. Optional track=cs-first-year only when user wants the CS freshman template and listed no courses. Double/triple major: pass ALL courses in one list.",
+      "Universal term planner (any major/year). Fetches live SOC per course, builds a conflict-aware weekly grid. Uses profile courses + optional courses arg. track=cs-first-year only for the CS freshman template when no courses listed.",
     parameters: {
       type: "object",
       properties: {

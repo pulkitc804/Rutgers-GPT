@@ -64,20 +64,8 @@ function buildOllamaUserTurn(params: AgentRunParams): string {
 
 function buildAgentSystemPrompt(base: string, profile?: RutgersStudentProfile): string {
   const profileBlock = formatStudentProfileBlock(profile);
-  const agentDirective = [
-    "",
-    "---",
-    "Agent mode (active):",
-    "You are a dedicated Rutgers student agent with tools + RAG knowledge + persistent student memory.",
-    "Scope: Rutgers–New Brunswick only (College Ave, Busch, Livingston, Cook/Douglass). Do not advise on Newark or Camden. Use search_rutgers_knowledge for policies, campuses, buildings, Canvas help.",
-    "For dining halls or which campus a building is on: call get_dining_menu or search_rutgers_knowledge — never guess (Atrium = College Avenue / College Ave Student Center per food.rutgers.edu).",
-    "Use plan_term_schedule for ANY major/year — student course list from profile (double/triple major = one combined list) — never generic link dumps.",
-    "Use get_canvas_guidance, get_campus_events, get_campus_info, get_live_transit (all saved stops) as needed.",
-    "Repeat only facts present in tool JSON (verified, primarySource, fetchedAt). Cite official URLs when stating locations or menus.",
-    "Respect persistent memory facts and enrolled courses from the profile block.",
-    profileBlock ? `\n${profileBlock}` : "",
-  ].join("\n");
-  return base + agentDirective;
+  // Scope/tools/anti-hallucination already live in the base prompt; keep this minimal to save tokens.
+  return profileBlock ? `${base}\n\n---\nStudent profile:\n${profileBlock}` : base;
 }
 
 /**
