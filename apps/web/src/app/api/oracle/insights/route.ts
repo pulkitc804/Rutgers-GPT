@@ -1,10 +1,14 @@
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
 import { ollamaChatOnce } from "@/lib/ollama-oracle";
+import { geminiGenerateContent } from "@/lib/gemini-oracle";
 import {
   getOracleLlmMode,
   getOllamaBaseUrl,
   getOllamaGenerationOptions,
   getOllamaModel,
+  getGeminiBaseUrl,
+  getGeminiModel,
+  getGeminiTemperature,
 } from "@/lib/oracle-llm-config";
 import {
   aggregateTruthConfidence,
@@ -85,6 +89,48 @@ export async function POST(req: Request) {
       }
       const result: OracleInsightResult = {
         text: ollama.text,
+        truthLayerRows,
+        aggregateConfidence,
+      };
+      return NextResponse.json(result);
+    }
+
+    if (mode === "gemini") {
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (!geminiKey) {
+        return NextResponse.json(
+          { error: "ORACLE_LLM=gemini requires GEMINI_API_KEY (free at https://aistudio.google.com/apikey)." },
+          { status: 503 },
+        );
+      }
+      const truthBlock = formatTruthLayerBlock(sources, now);
+      const truthLayerRows = sources.map((s) => describeTruthLayerRow(s, now));
+      const aggregateConfidence = sources.length
+        ? aggregateTruthConfidence(truthLayerRows.map((r) => r.level))
+        : ("medium" as OracleInsightResult["aggregateConfidence"]);
+
+      const userPayload = [
+        truthBlock,
+        "",
+        "Context JSON:",
+        JSON.stringify(body.context, null, 2),
+        "",
+        "Provide actionable insights for a Rutgers student dashboard.",
+      ].join("\n");
+
+      const gemini = await geminiGenerateContent({
+        baseUrl: getGeminiBaseUrl(),
+        apiKey: geminiKey,
+        model: getGeminiModel(),
+        systemInstruction: systemPrompt,
+        contents: [{ role: "user", parts: [{ text: userPayload }] }],
+        temperature: getGeminiTemperature(),
+      });
+      if (!gemini.ok) {
+        return NextResponse.json({ error: gemini.error }, { status: 502 });
+      }
+      const result: OracleInsightResult = {
+        text: gemini.text,
         truthLayerRows,
         aggregateConfidence,
       };

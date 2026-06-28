@@ -1,13 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
-import { toAnthropicTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
+import { toAnthropicTools, toGeminiTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
 import { formatStudentProfileBlock, type RutgersStudentProfile } from "@rutgers-gpt/shared/ai/student-profile";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
 import { createOllamaChatTextStream, ollamaChatRaw } from "@/lib/ollama-oracle";
+import { geminiGenerateContent, type GeminiContent, type GeminiPart } from "@/lib/gemini-oracle";
 import { OLLAMA_FINAL_SYNTHESIS_USER } from "@/lib/agent-execution-contract";
 import {
   getAnthropicTemperature,
+  getGeminiBaseUrl,
+  getGeminiModel,
+  getGeminiTemperature,
   getOllamaBaseUrl,
   getOllamaGenerationOptions,
   getOllamaModel,
@@ -221,6 +225,58 @@ async function runAnthropicAgentLoop(params: AgentRunParams, apiKey: string, mod
   return "I hit the tool step limit — ask again with a narrower question.";
 }
 
+async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
+  const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
+  const tools = toGeminiTools();
+  const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
+  const baseUrl = getGeminiBaseUrl();
+  const temperature = getGeminiTemperature();
+
+  const contents: GeminiContent[] = [
+    ...params.messages.slice(0, -1).map(
+      (m): GeminiContent => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }),
+    ),
+    { role: "user", parts: [{ text: buildOllamaUserTurn(params) }] },
+  ];
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const res = await geminiGenerateContent({
+      baseUrl,
+      apiKey,
+      model,
+      systemInstruction: system,
+      contents,
+      tools,
+      temperature,
+    });
+    if (!res.ok) return `[Gemini: ${res.error}]`;
+
+    if (!res.functionCalls.length) {
+      return res.text || "(No text returned)";
+    }
+
+    // Echo the model's function-call turn back, then answer each call.
+    if (res.content) contents.push(res.content);
+    const responseParts: GeminiPart[] = [];
+    for (const fc of res.functionCalls) {
+      const result = await runRutgersAgentTool(
+        fc.name as Parameters<typeof runRutgersAgentTool>[0],
+        (fc.args ?? {}) as Record<string, unknown>,
+        ctx,
+      );
+      responseParts.push({
+        functionResponse: { name: fc.name, response: { result: truncateToolResult(result) } },
+      });
+    }
+    contents.push({ role: "user", parts: responseParts });
+  }
+
+  return "I hit the tool step limit — ask again with a narrower question.";
+}
+
 /** Runs the Rutgers agent (tool loop) and returns a plain-text stream for the chat UI. */
 export async function runRutgersOracleAgentStream(params: AgentRunParams): Promise<{
   stream: ReadableStream<Uint8Array>;
@@ -247,6 +303,21 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
       stream: createOllamaChatTextStream(base, model, built.messages, { generation: gen }),
       modelHeader: `ollama:${model}`,
     };
+  }
+
+  if (mode === "gemini") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    const model = getGeminiModel();
+    if (!apiKey) {
+      return {
+        stream: textToStream(
+          "[Agent: GEMINI_API_KEY required for Gemini mode. Get a free key at https://aistudio.google.com/apikey]",
+        ),
+        modelHeader: "gemini:missing-key",
+      };
+    }
+    const text = await runGeminiAgentLoop(params, apiKey, model);
+    return { stream: textToStream(text), modelHeader: `gemini:${model}` };
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

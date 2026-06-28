@@ -1,18 +1,44 @@
-export type OracleLlmMode = "anthropic" | "ollama";
+export type OracleLlmMode = "anthropic" | "ollama" | "gemini";
 
 /**
  * Resolves which backend powers Oracle chat + insights.
  *
  * - `ORACLE_LLM=ollama` → always Ollama (`OLLAMA_BASE_URL`, default http://127.0.0.1:11434).
  * - `ORACLE_LLM=anthropic` → always Anthropic (requires `ANTHROPIC_API_KEY`).
- * - Unset → Anthropic if `ANTHROPIC_API_KEY` is set, otherwise **local Ollama** (easy local testing).
+ * - `ORACLE_LLM=gemini` → always Google Gemini (requires `GEMINI_API_KEY`; free tier).
+ * - Unset → Gemini if `GEMINI_API_KEY` set, else Anthropic if `ANTHROPIC_API_KEY` set,
+ *   otherwise **local Ollama** (easy offline testing).
  */
 export function getOracleLlmMode(): OracleLlmMode {
   const v = (process.env.ORACLE_LLM ?? "").toLowerCase().trim();
   if (v === "ollama") return "ollama";
   if (v === "anthropic") return "anthropic";
+  if (v === "gemini") return "gemini";
+  if (process.env.GEMINI_API_KEY?.trim()) return "gemini";
   if (process.env.ANTHROPIC_API_KEY?.trim()) return "anthropic";
   return "ollama";
+}
+
+/** Base URL for the Google Generative Language API (override for proxies/tests). */
+export function getGeminiBaseUrl(): string {
+  return (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com").replace(/\/$/, "");
+}
+
+/**
+ * Gemini model id. Default `gemini-2.5-flash` — the current free-tier flash model
+ * (gemini-2.0-flash was deprecated 2026-06-01). Override with a newer flash via GEMINI_MODEL.
+ */
+export function getGeminiModel(): string {
+  return (process.env.GEMINI_MODEL ?? "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+}
+
+/** Sampling temperature for Gemini (default 0.4 — factual but not robotic). */
+export function getGeminiTemperature(): number {
+  const raw = process.env.GEMINI_TEMPERATURE?.trim();
+  if (raw === undefined || raw === "") return 0.4;
+  const n = Number(raw);
+  if (Number.isNaN(n)) return 0.4;
+  return Math.min(1, Math.max(0, n));
 }
 
 /** Base URL for Ollama (server-side only). Default: local daemon. */

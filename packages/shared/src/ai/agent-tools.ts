@@ -223,3 +223,34 @@ export function toOllamaTools() {
     },
   }));
 }
+
+/**
+ * Gemini accepts only a subset of OpenAPI schema; `additionalProperties` (which our
+ * specs use) is rejected. Strip it recursively while preserving type/properties/
+ * required/enum/items/description.
+ */
+function stripUnsupportedSchemaKeys(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(stripUnsupportedSchemaKeys);
+  if (schema && typeof schema === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+      if (k === "additionalProperties") continue;
+      out[k] = stripUnsupportedSchemaKeys(v);
+    }
+    return out;
+  }
+  return schema;
+}
+
+/** Gemini function-calling tools: a single tool block with all functionDeclarations. */
+export function toGeminiTools() {
+  return [
+    {
+      functionDeclarations: RUTGERS_AGENT_TOOLS.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: stripUnsupportedSchemaKeys(t.parameters),
+      })),
+    },
+  ];
+}
