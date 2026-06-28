@@ -6,12 +6,16 @@ import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
 import { createOllamaChatTextStream, ollamaChatRaw } from "@/lib/ollama-oracle";
 import { geminiGenerateContent, type GeminiContent, type GeminiPart } from "@/lib/gemini-oracle";
+import { groqChatCompletion, type GroqMessage } from "@/lib/groq-oracle";
 import { OLLAMA_FINAL_SYNTHESIS_USER } from "@/lib/agent-execution-contract";
 import {
   getAnthropicTemperature,
   getGeminiBaseUrl,
   getGeminiModel,
   getGeminiTemperature,
+  getGroqBaseUrl,
+  getGroqModel,
+  getGroqTemperature,
   getOllamaBaseUrl,
   getOllamaGenerationOptions,
   getOllamaModel,
@@ -73,6 +77,18 @@ function buildAgentSystemPrompt(base: string, profile?: RutgersStudentProfile): 
     profileBlock ? `\n${profileBlock}` : "",
   ].join("\n");
   return base + agentDirective;
+}
+
+/**
+ * Deterministic anti-slop pass: strip any model-emitted "Truth confidence:" line
+ * (small models keep adding it despite the prompt). Belt-and-suspenders with the
+ * system prompt + execution contract. See SECURITY-PLAN P1-6.
+ */
+function stripModelBoilerplate(text: string): string {
+  return text
+    .replace(/^\s*[*_-]*\s*Truth confidence:.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function textToStream(text: string): ReadableStream<Uint8Array> {
@@ -277,6 +293,43 @@ async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model:
   return "I hit the tool step limit — ask again with a narrower question.";
 }
 
+async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
+  const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
+  const tools = toOllamaTools(); // Groq uses the OpenAI tool schema (same shape)
+  const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
+  const baseUrl = getGroqBaseUrl();
+  const temperature = getGroqTemperature();
+
+  const messages: GroqMessage[] = [
+    { role: "system", content: system },
+    ...params.messages.slice(0, -1).map((m): GroqMessage => ({ role: m.role, content: m.content })),
+    { role: "user", content: buildOllamaUserTurn(params) },
+  ];
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature });
+    if (!res.ok) return `[Groq: ${res.error}]`;
+
+    const msg = res.message;
+    const toolCalls = msg.tool_calls;
+    if (!toolCalls?.length) {
+      return (msg.content ?? "").trim() || "(No text returned)";
+    }
+
+    messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: toolCalls });
+    for (const tc of toolCalls) {
+      const result = await runRutgersAgentTool(
+        tc.function?.name as Parameters<typeof runRutgersAgentTool>[0],
+        parseToolArgs(tc.function?.arguments),
+        ctx,
+      );
+      messages.push({ role: "tool", tool_call_id: tc.id, content: truncateToolResult(result) });
+    }
+  }
+
+  return "I hit the tool step limit — ask again with a narrower question.";
+}
+
 /** Runs the Rutgers agent (tool loop) and returns a plain-text stream for the chat UI. */
 export async function runRutgersOracleAgentStream(params: AgentRunParams): Promise<{
   stream: ReadableStream<Uint8Array>;
@@ -305,6 +358,21 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
     };
   }
 
+  if (mode === "groq") {
+    const apiKey = process.env.GROQ_API_KEY;
+    const model = getGroqModel();
+    if (!apiKey) {
+      return {
+        stream: textToStream(
+          "[Agent: GROQ_API_KEY required for Groq mode. Get a free key at https://console.groq.com/keys]",
+        ),
+        modelHeader: "groq:missing-key",
+      };
+    }
+    const text = stripModelBoilerplate(await runGroqAgentLoop(params, apiKey, model));
+    return { stream: textToStream(text), modelHeader: `groq:${model}` };
+  }
+
   if (mode === "gemini") {
     const apiKey = process.env.GEMINI_API_KEY;
     const model = getGeminiModel();
@@ -316,7 +384,7 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
         modelHeader: "gemini:missing-key",
       };
     }
-    const text = await runGeminiAgentLoop(params, apiKey, model);
+    const text = stripModelBoilerplate(await runGeminiAgentLoop(params, apiKey, model));
     return { stream: textToStream(text), modelHeader: `gemini:${model}` };
   }
 
@@ -329,6 +397,6 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
   }
 
   const model = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
-  const text = await runAnthropicAgentLoop(params, apiKey, model);
+  const text = stripModelBoilerplate(await runAnthropicAgentLoop(params, apiKey, model));
   return { stream: textToStream(text), modelHeader: model };
 }

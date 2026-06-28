@@ -1,6 +1,7 @@
 import { loadScarletOracleSystemPrompt } from "@/ai/load-system-prompt";
 import { ollamaChatOnce } from "@/lib/ollama-oracle";
 import { geminiGenerateContent } from "@/lib/gemini-oracle";
+import { groqChatCompletion } from "@/lib/groq-oracle";
 import {
   getOracleLlmMode,
   getOllamaBaseUrl,
@@ -9,6 +10,9 @@ import {
   getGeminiBaseUrl,
   getGeminiModel,
   getGeminiTemperature,
+  getGroqBaseUrl,
+  getGroqModel,
+  getGroqTemperature,
 } from "@/lib/oracle-llm-config";
 import {
   aggregateTruthConfidence,
@@ -89,6 +93,50 @@ export async function POST(req: Request) {
       }
       const result: OracleInsightResult = {
         text: ollama.text,
+        truthLayerRows,
+        aggregateConfidence,
+      };
+      return NextResponse.json(result);
+    }
+
+    if (mode === "groq") {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (!groqKey) {
+        return NextResponse.json(
+          { error: "ORACLE_LLM=groq requires GROQ_API_KEY (free at https://console.groq.com/keys)." },
+          { status: 503 },
+        );
+      }
+      const truthBlock = formatTruthLayerBlock(sources, now);
+      const truthLayerRows = sources.map((s) => describeTruthLayerRow(s, now));
+      const aggregateConfidence = sources.length
+        ? aggregateTruthConfidence(truthLayerRows.map((r) => r.level))
+        : ("medium" as OracleInsightResult["aggregateConfidence"]);
+
+      const userPayload = [
+        truthBlock,
+        "",
+        "Context JSON:",
+        JSON.stringify(body.context, null, 2),
+        "",
+        "Provide actionable insights for a Rutgers student dashboard.",
+      ].join("\n");
+
+      const groq = await groqChatCompletion({
+        baseUrl: getGroqBaseUrl(),
+        apiKey: groqKey,
+        model: getGroqModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPayload },
+        ],
+        temperature: getGroqTemperature(),
+      });
+      if (!groq.ok) {
+        return NextResponse.json({ error: groq.error }, { status: 502 });
+      }
+      const result: OracleInsightResult = {
+        text: groq.message.content ?? "",
         truthLayerRows,
         aggregateConfidence,
       };

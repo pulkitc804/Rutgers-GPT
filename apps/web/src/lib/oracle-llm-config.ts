@@ -1,4 +1,4 @@
-export type OracleLlmMode = "anthropic" | "ollama" | "gemini";
+export type OracleLlmMode = "anthropic" | "ollama" | "gemini" | "groq";
 
 /**
  * Resolves which backend powers Oracle chat + insights.
@@ -6,17 +6,38 @@ export type OracleLlmMode = "anthropic" | "ollama" | "gemini";
  * - `ORACLE_LLM=ollama` → always Ollama (`OLLAMA_BASE_URL`, default http://127.0.0.1:11434).
  * - `ORACLE_LLM=anthropic` → always Anthropic (requires `ANTHROPIC_API_KEY`).
  * - `ORACLE_LLM=gemini` → always Google Gemini (requires `GEMINI_API_KEY`; free tier).
- * - Unset → Gemini if `GEMINI_API_KEY` set, else Anthropic if `ANTHROPIC_API_KEY` set,
- *   otherwise **local Ollama** (easy offline testing).
+ * - `ORACLE_LLM=groq` → always Groq (requires `GROQ_API_KEY`; free tier, Llama 3.3 70B).
+ * - Unset → Groq, then Gemini, then Anthropic if their key is set, otherwise **local Ollama**.
  */
 export function getOracleLlmMode(): OracleLlmMode {
   const v = (process.env.ORACLE_LLM ?? "").toLowerCase().trim();
   if (v === "ollama") return "ollama";
   if (v === "anthropic") return "anthropic";
   if (v === "gemini") return "gemini";
+  if (v === "groq") return "groq";
+  if (process.env.GROQ_API_KEY?.trim()) return "groq";
   if (process.env.GEMINI_API_KEY?.trim()) return "gemini";
   if (process.env.ANTHROPIC_API_KEY?.trim()) return "anthropic";
   return "ollama";
+}
+
+/** Base URL for Groq's OpenAI-compatible API. */
+export function getGroqBaseUrl(): string {
+  return (process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1").replace(/\/$/, "");
+}
+
+/** Groq model id. Default `llama-3.3-70b-versatile` — smart + free, supports tool calling. */
+export function getGroqModel(): string {
+  return (process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile").trim() || "llama-3.3-70b-versatile";
+}
+
+/** Sampling temperature for Groq (default 0.4). */
+export function getGroqTemperature(): number {
+  const raw = process.env.GROQ_TEMPERATURE?.trim();
+  if (raw === undefined || raw === "") return 0.4;
+  const n = Number(raw);
+  if (Number.isNaN(n)) return 0.4;
+  return Math.min(2, Math.max(0, n));
 }
 
 /** Base URL for the Google Generative Language API (override for proxies/tests). */
