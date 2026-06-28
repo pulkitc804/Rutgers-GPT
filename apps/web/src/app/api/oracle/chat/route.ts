@@ -108,15 +108,22 @@ export async function POST(req: Request) {
       );
     }
 
-    if (
-      /\b(campus|building|hours|library|canvas|policy|atrium|dining|meal|food|livi|livingston|busch|cook|douglass|college ave|degree|major)\b/i.test(
+    // Prefetch RAG for any non-action question (transit/dining/schedule are prefetched
+    // separately below). Injecting hits lets the model answer in ONE call instead of
+    // calling search_rutgers_knowledge itself — critical under tight free-tier token limits.
+    const actionPrefetch = intent.transit || intent.dining || intent.schedule.match;
+    const ragKeywordHit =
+      /\b(campus|building|hours|library|canvas|policy|atrium|dining|meal|food|livi|livingston|busch|cook|douglass|college ave|degree|major|financial aid|tuition|fee|bill|payment|refund|housing|dorm|parking|netid|advising|tutoring|career|health|caps|registrar|transcript|graduation|deadline|register)\b/i.test(
         lastRaw,
-      )
-    ) {
+      );
+    if (ragKeywordHit || (!actionPrefetch && lastRaw.trim().length > 6)) {
       let hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
       hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
       if (hits.length) {
-        contextParts.push("RUTGERS_KNOWLEDGE (RAG — cite when relevant):", formatRagHitsForAgent(hits));
+        contextParts.push(
+          "RUTGERS_KNOWLEDGE (RAG — answer from this and cite the Source URL; do NOT call search_rutgers_knowledge again):",
+          formatRagHitsForAgent(hits),
+        );
       }
     }
 
