@@ -25,11 +25,14 @@ export function getGeminiBaseUrl(): string {
 }
 
 /**
- * Gemini model id. Default `gemini-2.5-flash` — the current free-tier flash model
- * (gemini-2.0-flash was deprecated 2026-06-01). Override with a newer flash via GEMINI_MODEL.
+ * Gemini model id. Default `gemini-2.5-flash-lite` — on the FREE tier it has a
+ * higher request-per-minute limit and far less "high demand" overload than plain
+ * `gemini-2.5-flash` (verified 2026-06: flash repeatedly 503'd; flash-lite did not).
+ * Set GEMINI_MODEL=gemini-2.5-flash for higher quality once on a paid tier.
+ * (gemini-2.0-flash was deprecated 2026-06-01 — don't use it.)
  */
 export function getGeminiModel(): string {
-  return (process.env.GEMINI_MODEL ?? "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+  return (process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite").trim() || "gemini-2.5-flash-lite";
 }
 
 /** Sampling temperature for Gemini (default 0.4 — factual but not robotic). */
