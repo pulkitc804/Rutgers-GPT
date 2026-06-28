@@ -1,6 +1,7 @@
 /**
  * Dining: FoodPro menu portals (menuportal23) + food.rutgers.edu link discovery.
  */
+import { fetchWithGuard, readTextCapped } from "../net/http";
 
 export const MENU_PORTAL_BASE = "https://menuportal23.dining.rutgers.edu";
 export const FOOD_RUTGERS_RETAIL_MENUS = "https://food.rutgers.edu/places-eat/retail-dining-menus";
@@ -204,16 +205,16 @@ export type RetailMenuLink = {
 
 export const DiningService = {
   async fetchMenuDocument(url: string): Promise<string> {
-    const res = await fetch(url, { credentials: "omit" });
+    const res = await fetchWithGuard(url, { label: "Dining", timeoutMs: 8000, credentials: "omit" });
     if (!res.ok) throw new Error(`Dining menu HTTP ${res.status}`);
-    return res.text();
+    return readTextCapped(res, 5_000_000, "Dining");
   },
 
   /** Scrape food.rutgers.edu retail menus page for external menu URLs. */
   async fetchRetailMenuLinksFromFoodSite(): Promise<RetailMenuLink[]> {
-    const res = await fetch(FOOD_RUTGERS_RETAIL_MENUS, { credentials: "omit" });
+    const res = await fetchWithGuard(FOOD_RUTGERS_RETAIL_MENUS, { label: "FoodSite", timeoutMs: 8000, credentials: "omit" });
     if (!res.ok) throw new Error(`food.rutgers.edu HTTP ${res.status}`);
-    const html = await res.text();
+    const html = await readTextCapped(res, 5_000_000, "FoodSite");
     const out: RetailMenuLink[] = [];
     const a = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]*)<\/a>/gi;
     let m: RegExpExecArray | null;

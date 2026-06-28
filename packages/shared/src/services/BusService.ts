@@ -2,6 +2,7 @@
  * Passio GO integration for Rutgers (rutgers.passiogo.com).
  * System id 1268 is the Rutgers University agency on this tenant (2026).
  */
+import { fetchWithGuard, readTextCapped } from "../net/http";
 
 export const RUTGERS_PASSIO_BASE = "https://rutgers.passiogo.com";
 export const RUTGERS_SYSTEM_ID = 1268;
@@ -88,13 +89,15 @@ export function mapPassioEtaResponse(json: unknown, stopId: string): BusEta[] {
 }
 
 async function postForm(url: string, body: Record<string, string>): Promise<unknown> {
-  const res = await fetch(url, {
+  const res = await fetchWithGuard(url, {
+    label: "Passio",
+    timeoutMs: 7000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Passio request failed (${res.status}): ${url}`);
-  return res.json();
+  return JSON.parse(await readTextCapped(res, 3_000_000, "Passio"));
 }
 
 export const BusService = {
@@ -134,9 +137,12 @@ export const BusService = {
     if (params.routeId) search.set("routeId", params.routeId);
     if (params.position != null && params.position > 0) search.set("position", String(params.position));
 
-    const res = await fetch(`${RUTGERS_PASSIO_BASE}/mapGetData.php?${search.toString()}`);
+    const res = await fetchWithGuard(`${RUTGERS_PASSIO_BASE}/mapGetData.php?${search.toString()}`, {
+      label: "Passio",
+      timeoutMs: 7000,
+    });
     if (!res.ok) throw new Error(`Passio ETA failed (${res.status})`);
-    const json = await res.json();
+    const json = JSON.parse(await readTextCapped(res, 3_000_000, "Passio"));
     return mapPassioEtaResponse(json, params.stopId);
   },
 

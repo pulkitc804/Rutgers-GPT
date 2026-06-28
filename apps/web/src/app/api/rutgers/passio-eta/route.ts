@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchWithGuard, readTextCapped } from "@rutgers-gpt/shared/net";
 
 const PASSIO_BASE = "https://rutgers.passiogo.com";
 
@@ -18,14 +19,16 @@ export async function GET(req: Request) {
 
   try {
     const url = `${PASSIO_BASE}/mapGetData.php?${out.toString()}`;
-    const upstream = await fetch(url, {
+    const upstream = await fetchWithGuard(url, {
+      label: "Passio",
+      timeoutMs: 7000,
       headers: {
         Accept: "application/json",
         "User-Agent": "RutgersGPT/1.0 (campus proxy; +https://rutgers.edu)",
       },
       cache: "no-store",
     });
-    const text = await upstream.text();
+    const text = await readTextCapped(upstream, 3_000_000, "Passio");
     if (!upstream.ok) {
       return NextResponse.json(
         { error: `Passio returned ${upstream.status}` },

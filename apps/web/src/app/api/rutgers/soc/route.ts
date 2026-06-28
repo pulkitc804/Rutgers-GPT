@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchWithGuard, readTextCapped } from "@rutgers-gpt/shared/net";
 
 const SOC_BASE = "https://classes.rutgers.edu/soc/api/courses.json";
 
@@ -10,14 +11,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing query (year, term, subject, …)" }, { status: 400 });
   }
   try {
-    const upstream = await fetch(`${SOC_BASE}?${qs}`, {
+    const upstream = await fetchWithGuard(`${SOC_BASE}?${qs}`, {
+      label: "SOC",
+      timeoutMs: 9000,
       headers: {
         Accept: "application/json",
         "User-Agent": "RutgersGPT/1.0 (campus proxy; +https://rutgers.edu)",
       },
       cache: "no-store",
     });
-    const text = await upstream.text();
+    // SOC returns the entire campus/term catalog (filtered client-side), which is large.
+    const text = await readTextCapped(upstream, 64_000_000, "SOC");
     if (!upstream.ok) {
       return NextResponse.json(
         { error: `SOC upstream returned ${upstream.status}` },

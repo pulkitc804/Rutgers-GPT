@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchWithGuard, readTextCapped } from "@rutgers-gpt/shared/net";
 
 const ALLOWED_PREFIXES = [
   "https://menuportal23.dining.rutgers.edu/",
@@ -35,7 +36,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Target URL is not on the allowlist" }, { status: 400 });
   }
   try {
-    const upstream = await fetch(decoded, {
+    const upstream = await fetchWithGuard(decoded, {
+      label: "Dining",
+      timeoutMs: 8000,
       headers: {
         Accept: "text/html,application/xhtml+xml",
         "User-Agent": "RutgersGPT/1.0 (campus proxy; +https://rutgers.edu)",
@@ -48,7 +51,7 @@ export async function GET(req: Request) {
         { status: upstream.status >= 500 ? 502 : upstream.status },
       );
     }
-    const html = await upstream.text();
+    const html = await readTextCapped(upstream, 5_000_000, "Dining");
     return NextResponse.json({ html });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
