@@ -60,6 +60,20 @@ const SOURCES = [
   { slug: "career-services", title: "Career Exploration & Success", url: "https://careers.rutgers.edu/" },
   { slug: "one-stop", title: "Scarlet Hub (One Stop)", url: "https://scarlethub.rutgers.edu/" },
   { slug: "graduation", title: "Graduation & Commencement", url: "https://commencement.rutgers.edu/" },
+  // More student services
+  { slug: "study-abroad", title: "Study Abroad (Global)", url: "https://global.rutgers.edu/" },
+  { slug: "disability-services", title: "Disability Services (ODS)", url: "https://ods.rutgers.edu/" },
+  { slug: "international-students", title: "International Students (ISSS)", url: "https://global.rutgers.edu/international-students-scholars" },
+  { slug: "recreation", title: "Rutgers Recreation", url: "https://recreation.rutgers.edu/" },
+  { slug: "public-safety", title: "Public Safety (RUPD)", url: "https://publicsafety.rutgers.edu/" },
+  { slug: "veterans", title: "Veterans Services", url: "https://veterans.rutgers.edu/" },
+  { slug: "first-gen", title: "Educational Opportunity Fund (EOF)", url: "https://eof.rutgers.edu/" },
+  { slug: "honors", title: "Honors College", url: "https://honorscollege.rutgers.edu/" },
+  // More departments
+  { slug: "math-dept", title: "Mathematics Department", url: "https://www.math.rutgers.edu/" },
+  { slug: "sas-home", title: "School of Arts & Sciences", url: "https://sas.rutgers.edu/" },
+  { slug: "engineering", title: "School of Engineering", url: "https://soe.rutgers.edu/" },
+  { slug: "business", title: "Rutgers Business School", url: "https://www.business.rutgers.edu/" },
 ];
 
 function decodeEntities(s) {
