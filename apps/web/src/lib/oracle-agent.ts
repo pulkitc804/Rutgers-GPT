@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
-import { toAnthropicTools, toGeminiTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
+import { toAnthropicTools, toGeminiTools, toGroqTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
 import { formatStudentProfileBlock, type RutgersStudentProfile } from "@rutgers-gpt/shared/ai/student-profile";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
@@ -40,7 +40,8 @@ type AgentRunParams = {
   prefetchedTools?: PrefetchedToolResult[];
 };
 
-const TOOL_RESULT_MAX_CHARS = 7000;
+// Kept modest so a multi-round tool turn fits in tight free-tier token-per-minute limits (Groq = 12k TPM).
+const TOOL_RESULT_MAX_CHARS = 2800;
 
 function truncateToolResult(text: string): string {
   if (text.length <= TOOL_RESULT_MAX_CHARS) return text;
@@ -87,6 +88,9 @@ function buildAgentSystemPrompt(base: string, profile?: RutgersStudentProfile): 
 function stripModelBoilerplate(text: string): string {
   return text
     .replace(/^\s*[*_-]*\s*Truth confidence:.*$/gim, "")
+    // gpt-oss citation artifacts like 【2†excerpt】 / 【3†L1-L4】
+    .replace(/【[^】]*】/g, "")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -295,7 +299,7 @@ async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model:
 
 async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
   const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
-  const tools = toOllamaTools(); // Groq uses the OpenAI tool schema (same shape)
+  const tools = toGroqTools(); // OpenAI tool schema, additionalProperties stripped for Llama
   const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
   const baseUrl = getGroqBaseUrl();
   const temperature = getGroqTemperature();
@@ -307,7 +311,7 @@ async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: s
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature });
+    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature, maxTokens: 1200 });
     if (!res.ok) return `[Groq: ${res.error}]`;
 
     const msg = res.message;

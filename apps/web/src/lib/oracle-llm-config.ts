@@ -26,9 +26,15 @@ export function getGroqBaseUrl(): string {
   return (process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1").replace(/\/$/, "");
 }
 
-/** Groq model id. Default `llama-3.3-70b-versatile` — smart + free, supports tool calling. */
+/**
+ * Groq model id. Default `openai/gpt-oss-20b` — free, fast, and emits CORRECT
+ * structured tool calls within tight free-tier token limits. Use
+ * `openai/gpt-oss-120b` for more reasoning power (slower / heavier on free TPM).
+ * (Avoid llama-3.3-70b-versatile on Groq: it mis-formats tool calls as
+ * `<function=...>` text and fails with tool_use_failed.) Override via GROQ_MODEL.
+ */
 export function getGroqModel(): string {
-  return (process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile").trim() || "llama-3.3-70b-versatile";
+  return (process.env.GROQ_MODEL ?? "openai/gpt-oss-20b").trim() || "openai/gpt-oss-20b";
 }
 
 /** Sampling temperature for Groq (default 0.4). */

@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BookmarkPlus,
   Bus,
+  CalendarDays,
   Check,
   Copy,
   GraduationCap,
@@ -93,6 +94,30 @@ const QUICK_ACTIONS: { id: string; label: string; icon: typeof Bus; prompt: stri
     icon: HeartPulse,
     prompt:
       "Give a short, factual orientation to CAPS, Student Health, and TimelyCare using only the wellness links in context — no rumors, no wait-time guesses.",
+  },
+];
+
+const EXAMPLE_PROMPTS: { icon: typeof Bus; title: string; prompt: string }[] = [
+  {
+    icon: Utensils,
+    title: "What's good at the Atrium right now?",
+    prompt: "What's good at the Atrium right now?",
+  },
+  {
+    icon: CalendarDays,
+    title: "When does Fall 2026 start?",
+    prompt: "What day does the Fall 2026 semester start at Rutgers, and when is the add/drop deadline?",
+  },
+  {
+    icon: GraduationCap,
+    title: "Plan my Fall 2026 schedule",
+    prompt:
+      "Help me plan my Fall 2026 schedule using my saved courses. Use real SOC sections, a weekly grid, credits, and registration steps.",
+  },
+  {
+    icon: Bus,
+    title: "When's my next bus?",
+    prompt: "When is my next bus? Use my saved stop and give the live ETA.",
   },
 ];
 
@@ -262,6 +287,9 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
 
   const isErr = (t: string) => /^(Chat failed|\[Error:|HTTP\s*\d)/i.test(t.trim());
 
+  const realMessages = messages.filter((m) => m.id !== "welcome");
+  const isEmpty = realMessages.length === 0;
+
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-[42rem] flex-1 flex-col lg:max-w-[48rem]">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.35rem] border border-white/[0.09] bg-zinc-950/50 shadow-[0_24px_80px_-24px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.04] backdrop-blur-2xl">
@@ -298,8 +326,45 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
         </div>
 
         <div className="rgpt-scroll min-h-0 flex-1 space-y-5 overflow-y-auto scroll-py-6 px-4 py-5 md:px-6">
-          <AnimatePresence initial={false}>
-            {messages.map((m) => (
+          {isEmpty ? (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              className="flex h-full flex-col items-center justify-center px-2 py-6 text-center"
+            >
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#e0244a] to-[#9a0022] shadow-[0_12px_40px_-8px_rgba(204,0,51,0.5)] ring-1 ring-white/15">
+                <Sparkles className="h-8 w-8 text-white" aria-hidden />
+              </div>
+              <h2 className="text-balance text-[1.6rem] font-semibold leading-tight tracking-tight text-white">
+                {welcome}
+              </h2>
+              <p className="mt-2.5 max-w-md text-balance text-[14px] leading-relaxed text-zinc-400">
+                Your Rutgers–New Brunswick campus agent. Ask about buses, dining, classes, deadlines, or
+                planning — grounded in live data, never guessed.
+              </p>
+              <div className="mt-8 grid w-full max-w-xl grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {EXAMPLE_PROMPTS.map((ex) => (
+                  <button
+                    key={ex.title}
+                    type="button"
+                    disabled={sending}
+                    onClick={() => void sendWithText(ex.prompt)}
+                    className="group flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-3.5 text-left transition hover:border-[#cc0033]/35 hover:bg-[#cc0033]/[0.08] active:scale-[0.99] disabled:opacity-50"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] ring-1 ring-white/10 transition group-hover:bg-[#cc0033]/15">
+                      <ex.icon className="h-4 w-4 text-[#ff9eb0]" aria-hidden />
+                    </span>
+                    <span className="text-[13.5px] font-medium leading-snug text-zinc-200 transition group-hover:text-white">
+                      {ex.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {realMessages.map((m) => (
               <motion.div
                 key={m.id}
                 layout
@@ -394,8 +459,9 @@ export function RutgersGptChat({ useStore, live, liveConnected }: Props) {
                   )}
                 </article>
               </motion.div>
-            ))}
-          </AnimatePresence>
+              ))}
+            </AnimatePresence>
+          )}
           <div ref={bottomRef} className="h-px shrink-0" />
         </div>
 

@@ -256,6 +256,21 @@ function stripUnsupportedSchemaKeys(schema: unknown): unknown {
   return schema;
 }
 
+/**
+ * Groq (OpenAI-compatible) tools. Llama on Groq can fail function generation when
+ * schemas carry `additionalProperties`; strip it (same dialect issue as Gemini).
+ */
+export function toGroqTools() {
+  return RUTGERS_AGENT_TOOLS.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: stripUnsupportedSchemaKeys(t.parameters),
+    },
+  }));
+}
+
 /** Gemini function-calling tools: a single tool block with all functionDeclarations. */
 export function toGeminiTools() {
   return [

@@ -131,7 +131,7 @@ export function RutgersGptHome() {
               <span className="text-sm font-semibold tracking-tight text-white">Chat</span>
               <Sparkles className="h-3.5 w-3.5 text-amber-200/70" aria-hidden />
             </div>
-            <span className="hidden text-[11px] text-zinc-500 sm:block">Claude-powered · grounded in your live campus panel</span>
+            <span className="hidden text-[11px] text-zinc-500 sm:block">Grounded in live Rutgers data · never guessed</span>
           </div>
           <div className="flex items-center gap-2">
             <Button

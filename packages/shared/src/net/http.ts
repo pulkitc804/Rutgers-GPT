@@ -54,6 +54,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Parse a Retry-After header (seconds or HTTP-date) into ms, capped. Returns 0 if absent. */
+function parseRetryAfterMs(header: string | null): number {
+  if (!header) return 0;
+  const secs = Number(header);
+  if (!Number.isNaN(secs)) return Math.min(secs * 1000, 8_000);
+  const date = Date.parse(header);
+  if (!Number.isNaN(date)) return Math.min(Math.max(0, date - Date.now()), 8_000);
+  return 0;
+}
+
 /**
  * fetch() with a timeout + bounded retries. Returns the Response on success
  * (including non-retryable 4xx — caller decides how to handle those).
@@ -88,7 +98,10 @@ export async function fetchWithGuard(
 
       if (isRetryableStatus(res.status) && attempt < retries) {
         lastStatus = res.status;
-        await sleep(backoffMs * 2 ** attempt + Math.floor(Math.random() * 100));
+        // Honor server's Retry-After (e.g. Groq TPM "try again in 3s") if it asks for longer.
+        const backoff = backoffMs * 2 ** attempt + Math.floor(Math.random() * 100);
+        const retryAfter = parseRetryAfterMs(res.headers.get("retry-after"));
+        await sleep(Math.max(backoff, retryAfter));
         continue;
       }
       return res;
