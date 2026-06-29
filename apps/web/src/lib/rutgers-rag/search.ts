@@ -19,6 +19,12 @@ export async function searchRutgersKnowledge(params: {
     }
     const dTokens = tokenize(`${chunk.title} ${chunk.text} ${chunk.tags.join(" ")}`);
     let score = scoreTokens(qTokens, dTokens);
+    // Strong title-match boost so a topical doc ("Mathematics Major Requirements")
+    // wins over an incidental mention in a long unrelated page.
+    const titleSet = new Set(tokenize(chunk.title));
+    let titleHits = 0;
+    for (const q of qTokens) if (titleSet.has(q)) titleHits += 1;
+    score += titleHits * 0.6;
     if (params.campus && chunk.campus === params.campus) score += 0.15;
     if (score > 0.2) hits.push({ chunk, score });
   }
@@ -32,7 +38,7 @@ export function formatRagHitsForAgent(hits: RagSearchHit[]): string {
   return hits
     .map(
       (h, i) =>
-        `[${i + 1}] ${h.chunk.title} (source: ${h.chunk.source}, score: ${h.score.toFixed(2)})\n${h.chunk.text.slice(0, 900)}`,
+        `[${i + 1}] ${h.chunk.title} (source: ${h.chunk.source}, score: ${h.score.toFixed(2)})\n${h.chunk.text.slice(0, 1400)}`,
     )
     .join("\n\n---\n\n");
 }

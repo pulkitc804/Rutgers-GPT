@@ -20,6 +20,7 @@ import {
   getOllamaGenerationOptions,
   getOllamaModel,
   getOracleLlmMode,
+  type OracleLlmMode,
 } from "@/lib/oracle-llm-config";
 import { runRutgersAgentTool, type ToolRunContext } from "@/lib/rutgers-tool-runner";
 
