@@ -27,7 +27,7 @@ const SOURCES = [
   // Money
   { slug: "financial-aid", title: "Financial Aid (NB)", url: "https://financialaid.rutgers.edu/" },
   { slug: "financial-services", title: "Financial Services Hub", url: "https://scarlethub.rutgers.edu/financial-services/" },
-  { slug: "tuition-fees", title: "Tuition & Fees", url: "https://finance.rutgers.edu/student-abc/tuition-fees" },
+  // tuition-fees.md is HAND-CURATED (the finance page is JS-rendered → nav junk; and quoting a wrong tuition number is harmful). Do not re-add here.
   { slug: "billing-payments", title: "Billing & Payments", url: "https://finance.rutgers.edu/student-abc/payments" },
   { slug: "payment-plans", title: "Tuition Payment Plans", url: "https://finance.rutgers.edu/student-abc/payments/rutgers-tuition-payment-plans" },
   { slug: "refunds", title: "Refunds", url: "https://finance.rutgers.edu/student-abc/refunds" },
