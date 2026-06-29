@@ -74,6 +74,20 @@ const SOURCES = [
   { slug: "sas-home", title: "School of Arts & Sciences", url: "https://sas.rutgers.edu/" },
   { slug: "engineering", title: "School of Engineering", url: "https://soe.rutgers.edu/" },
   { slug: "business", title: "Rutgers Business School", url: "https://www.business.rutgers.edu/" },
+  // Major requirements + policies (URLs verified by the discovery workflow to have real static content)
+  { slug: "math-major-requirements", title: "Mathematics Major Requirements", url: "https://sites.math.rutgers.edu/undergrad/Major/core.html" },
+  { slug: "cs-major-requirements", title: "Computer Science B.S. Requirements", url: "https://www.cs.rutgers.edu/academics/undergraduate/cs-degrees/b-s-degree" },
+  { slug: "biology-major-requirements", title: "Biological Sciences Major Requirements", url: "https://sasundergrad.rutgers.edu/majors-and-core-curriculum/major/major-minor-details/biological-sciences" },
+  { slug: "psychology-major-requirements", title: "Psychology Major Requirements", url: "https://psych.rutgers.edu/academics/undergraduate/major" },
+  { slug: "economics-major-requirements", title: "Economics Major Requirements", url: "https://economics.rutgers.edu/academics/undergraduate/major-requirements" },
+  { slug: "business-bait-major", title: "Business Analytics & IT (BAIT) Major", url: "https://www.business.rutgers.edu/undergraduate-new-brunswick/business-analytics-information-technology" },
+  { slug: "business-finance-major", title: "Finance Major", url: "https://www.business.rutgers.edu/undergraduate-new-brunswick/finance" },
+  { slug: "sas-core-curriculum", title: "SAS Core Curriculum", url: "https://sasundergrad.rutgers.edu/degree-requirements/core" },
+  { slug: "academic-integrity-policy", title: "Academic Integrity Policy & Violation Levels", url: "https://nbacademicintegrity.rutgers.edu/academic-integrity-policy/levels-academic-integrity-violations" },
+  { slug: "grading-gpa-policy", title: "Grading, GPA & Pass/No-Credit", url: "https://catalogs.rutgers.edu/generated/nb-ug_2022/pg1455.html" },
+  { slug: "withdrawal-refund", title: "Withdrawing & Tuition Refunds", url: "https://scarlethub.rutgers.edu/financial-services/eligibility/enrollment-requirements/withdrawing-from-all-courses/" },
+  { slug: "bus-routes-nb", title: "Campus Bus Routes (NB)", url: "https://ipo.rutgers.edu/transportation/buses/nb" },
+  { slug: "dining-places", title: "Places to Eat (Dining Halls)", url: "https://food.rutgers.edu/places-eat" },
 ];
 
 function decodeEntities(s) {
