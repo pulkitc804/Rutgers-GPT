@@ -10,6 +10,7 @@ import { resolveTermPlan } from "@/lib/resolve-term-plan";
 import { runRutgersAgentTool } from "@/lib/rutgers-tool-runner";
 import { wantsCsFirstYearTemplate } from "@rutgers-gpt/shared/ai/course-parser";
 import { formatRagHitsForAgent, searchRutgersKnowledge } from "@/lib/rutgers-rag/search";
+import { lookupRutgersOfficial } from "@/lib/rutgers-web-lookup";
 import { rerankWithOllamaEmbeddings } from "@/lib/rutgers-rag/embed-ollama";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
 import { detectVerifiedTopics, formatVerifiedFactsBlock } from "@rutgers-gpt/shared/ai/verified-sources";
@@ -119,7 +120,41 @@ export async function POST(req: Request) {
     if (ragKeywordHit || (!actionPrefetch && lastRaw.trim().length > 6)) {
       let hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
       hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
-      if (hits.length) {
+      const ragStrong = hits.length > 0 && hits[0].score >= 1.5;
+
+      if (ragStrong) {
+        contextParts.push(
+          "RUTGERS_KNOWLEDGE (RAG — answer from this and cite the Source URL; do NOT call search_rutgers_knowledge again):",
+          formatRagHitsForAgent(hits),
+        );
+      } else if (!actionPrefetch) {
+        // RAG had no strong hit → do a LIVE web search here on the server and inject the
+        // results, so the model answers in ONE call. (A model-initiated tool call would be
+        // a 2nd round, and two calls/turn blow the free-tier token-per-minute limit.)
+        let injected = false;
+        try {
+          const lookup = await lookupRutgersOfficial(lastRaw);
+          if (lookup.results.length) {
+            const block = lookup.results
+              .map((r, i) => `[${i + 1}] ${r.title} (Source: ${r.url})\n${r.excerpt}`)
+              .join("\n\n---\n\n")
+              .slice(0, 4500);
+            contextParts.push(
+              "RUTGERS_WEB_SEARCH (live results — write a thorough, specific answer from these and cite the Source url(s); do NOT call search_rutgers_web again. If the exact fact isn't here, say so and link the most relevant page):",
+              block,
+            );
+            injected = true;
+          }
+        } catch {
+          /* search failed — fall through to RAG/abstain */
+        }
+        if (!injected && hits.length) {
+          contextParts.push(
+            "RUTGERS_KNOWLEDGE (RAG — partial match; answer what's supported and link the official page):",
+            formatRagHitsForAgent(hits),
+          );
+        }
+      } else if (hits.length) {
         contextParts.push(
           "RUTGERS_KNOWLEDGE (RAG — answer from this and cite the Source URL; do NOT call search_rutgers_knowledge again):",
           formatRagHitsForAgent(hits),

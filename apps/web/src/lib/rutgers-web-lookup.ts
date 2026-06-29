@@ -45,7 +45,7 @@ function tokenize(s: string): string[] {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 1 && !STOP.has(t));
 }
 
-function focusedExcerpt(text: string, query: string, max = 1600): string {
+function focusedExcerpt(text: string, query: string, max = 1100): string {
   if (text.length <= max) return text;
   const tokens = tokenize(query);
   const lower = text.toLowerCase();
@@ -174,7 +174,7 @@ export async function lookupRutgersOfficial(query: string): Promise<RutgersOffic
 
   // 4. fetch the top few for fuller text; fall back to the search snippet
   const results: RutgersOfficialLookup["results"] = [];
-  for (const t of targets.slice(0, 4)) {
+  for (const t of targets.slice(0, 3)) {
     const text = await fetchPageText(t.url, query);
     const excerpt = text ?? (t.snippet ? `(search summary) ${t.snippet}` : "");
     if (excerpt.trim().length > 40) results.push({ title: t.title, url: t.url, excerpt });
