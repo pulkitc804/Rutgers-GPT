@@ -35,6 +35,9 @@ type Body = {
 };
 
 export async function POST(req: Request) {
+  if (Number(req.headers.get("content-length") ?? 0) > 32_000) {
+    return NextResponse.json({ error: "Request too large" }, { status: 413 });
+  }
   const mode = getOracleLlmMode();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (mode === "anthropic" && !apiKey) {

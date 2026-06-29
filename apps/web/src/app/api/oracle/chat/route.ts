@@ -61,6 +61,12 @@ function termLabelFromCode(term: number): string {
 }
 
 export async function POST(req: Request) {
+  // Reject oversized payloads before parsing (bounds worst-case tokens/memory per request).
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (contentLength > 32_000) {
+    return NextResponse.json({ error: "Request too large" }, { status: 413 });
+  }
+
   const mode = getOracleLlmMode();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (mode === "anthropic" && !apiKey) {
