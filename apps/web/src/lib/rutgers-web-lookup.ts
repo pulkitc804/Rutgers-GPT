@@ -132,8 +132,28 @@ export type RutgersOfficialLookup = {
   note?: string;
 };
 
+// Simple in-memory TTL cache so repeated/popular questions don't re-hit DuckDuckGo + page
+// fetches (0 latency, 0 external load on a hit) — key burst-survival lever on the free tier.
+const SEARCH_CACHE = new Map<string, { at: number; value: RutgersOfficialLookup }>();
+const SEARCH_TTL_MS = 30 * 60 * 1000; // 30 min
+const SEARCH_CACHE_MAX = 200;
+
 /** Live search Rutgers for any query: DDG results (snippets + fetched pages) + curated boosters. */
 export async function lookupRutgersOfficial(query: string): Promise<RutgersOfficialLookup> {
+  const cacheKey = query.trim().toLowerCase().replace(/\s+/g, " ");
+  const cached = SEARCH_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.at < SEARCH_TTL_MS) return cached.value;
+
+  const result = await lookupRutgersOfficialUncached(query);
+  // only cache successful lookups; let failures retry fresh
+  if (result.results.length) {
+    if (SEARCH_CACHE.size >= SEARCH_CACHE_MAX) SEARCH_CACHE.delete(SEARCH_CACHE.keys().next().value as string);
+    SEARCH_CACHE.set(cacheKey, { at: Date.now(), value: result });
+  }
+  return result;
+}
+
+async function lookupRutgersOfficialUncached(query: string): Promise<RutgersOfficialLookup> {
   // 1. curated booster (exact, high-trust) for known topics
   const qTokens = tokenize(query);
   const qLower = query.toLowerCase();

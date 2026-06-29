@@ -95,6 +95,10 @@ export async function POST(req: Request) {
 
     const contextParts: string[] = [];
     const prefetchedTools: PrefetchedToolResult[] = [];
+    // True once the server has injected enough grounding (RAG/search/tool results) that the
+    // model can answer in ONE call without calling tools itself — lets us drop the tool
+    // schemas for that turn (~1k tokens saved, keeps us under the free-tier minute).
+    let prefetchSatisfied = false;
 
     const verifiedTopics = detectVerifiedTopics(lastRaw);
     if (verifiedTopics.length) {
@@ -161,6 +165,10 @@ export async function POST(req: Request) {
         );
       }
     }
+    // If we injected any grounding above, the model can answer in one call without tools.
+    if (contextParts.some((p) => p.startsWith("RUTGERS_KNOWLEDGE") || p.startsWith("RUTGERS_WEB_SEARCH"))) {
+      prefetchSatisfied = true;
+    }
 
     let directScheduleText: string | null = null;
     const planIntent = intent.schedule;
@@ -211,7 +219,14 @@ export async function POST(req: Request) {
         }
       }
 
-      prefetchedTools.push({ name: "plan_term_schedule", content: JSON.stringify(plan).slice(0, 12_000) });
+      // The readable plan is already injected above as PRECOMPUTED_SOC_PLAN. Don't also dump the
+      // raw 12k-char JSON (the model never reads it — it just burns ~3k tokens and throttles the
+      // free-tier minute). Just signal the tool already ran so the model doesn't re-call it.
+      prefetchedTools.push({
+        name: "plan_term_schedule",
+        content:
+          "Already executed on the server — use PRECOMPUTED_SOC_PLAN above. Do NOT call plan_term_schedule again; synthesize the reply from that plan.",
+      });
     }
 
     const toolCtx = { profile: body.studentProfile, liveSnapshot: body.context };
@@ -262,6 +277,7 @@ export async function POST(req: Request) {
       lastUserContent,
       executionContract,
       prefetchedTools,
+      prefetchSatisfied: prefetchSatisfied || prefetchedTools.length > 0,
     });
 
     return new Response(stream, {

@@ -39,9 +39,11 @@ type AgentRunParams = {
   lastUserContent: string;
   executionContract?: string;
   prefetchedTools?: PrefetchedToolResult[];
+  /** Server already injected enough grounding → answer in one call, drop tool schemas. */
+  prefetchSatisfied?: boolean;
 };
 
-// Kept modest so a multi-round tool turn fits in tight free-tier token-per-minute limits (Groq = 12k TPM).
+// Kept modest so a turn fits the tight free-tier token-per-minute limit (Groq free = 8k TPM; lifted on the paid Developer tier).
 const TOOL_RESULT_MAX_CHARS = 2800;
 
 function truncateToolResult(text: string): string {
@@ -236,7 +238,7 @@ async function runAnthropicAgentLoop(params: AgentRunParams, apiKey: string, mod
 
 async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
   const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
-  const tools = toGeminiTools();
+  const tools = params.prefetchSatisfied ? undefined : toGeminiTools();
   const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
   const baseUrl = getGeminiBaseUrl();
   const temperature = getGeminiTemperature();
@@ -288,7 +290,9 @@ async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model:
 
 async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
   const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
-  const tools = toGroqTools(); // OpenAI tool schema, additionalProperties stripped for Llama
+  // When the server already injected grounding, drop tool schemas (~1k tokens) and force a
+  // single synthesis call — the model answers from context instead of a 2nd tool round.
+  const tools = params.prefetchSatisfied ? undefined : toGroqTools();
   const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
   const baseUrl = getGroqBaseUrl();
   const temperature = getGroqTemperature();
