@@ -45,7 +45,7 @@ export async function groqChatCompletion(opts: {
     const res = await fetchWithGuard(url, {
       label: "Groq",
       timeoutMs: 30_000,
-      retries: 2, // ride out a brief free-tier TPM throttle without stalling the UX
+      retries: 0, // fail fast on throttle — the agent falls back to another provider instantly
 
       method: "POST",
       headers: {

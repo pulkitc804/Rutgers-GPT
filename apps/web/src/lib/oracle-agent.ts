@@ -322,6 +322,47 @@ async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: s
   return "I hit the tool step limit — ask again with a narrower question.";
 }
 
+/** A failed provider run is marked with a `[Provider: ...]` prefix or empty text. */
+function isProviderError(text: string): boolean {
+  const t = text.trim();
+  if (!t || t === "(No text returned)") return true;
+  return /^\[(Groq|Gemini|Anthropic|Ollama|Agent):/i.test(t);
+}
+
+/** Shown only when EVERY available free provider is throttled/unavailable. Never a raw error. */
+const FRIENDLY_BUSY =
+  "I'm getting a burst of questions right now and hit a quick free-tier limit. Give me about 15 seconds and ask again — your answer will come right through.";
+
+type ProviderAttempt = { name: string; run: () => Promise<string> };
+
+/** Build the ordered provider chain: selected mode first, other configured providers as fallback. */
+function buildProviderChain(params: AgentRunParams, mode: OracleLlmMode): ProviderAttempt[] {
+  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+
+  const providers: Record<string, ProviderAttempt | null> = {
+    groq: groqKey
+      ? { name: `groq:${getGroqModel()}`, run: () => runGroqAgentLoop(params, groqKey, getGroqModel()) }
+      : null,
+    gemini: geminiKey
+      ? { name: `gemini:${getGeminiModel()}`, run: () => runGeminiAgentLoop(params, geminiKey, getGeminiModel()) }
+      : null,
+    anthropic: anthropicKey
+      ? {
+          name: process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+          run: () => runAnthropicAgentLoop(params, anthropicKey, process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest"),
+        }
+      : null,
+  };
+
+  // Primary by mode, then the rest (free providers first) as fallback.
+  const order = mode === "gemini" ? ["gemini", "groq", "anthropic"]
+    : mode === "anthropic" ? ["anthropic", "groq", "gemini"]
+    : ["groq", "gemini", "anthropic"]; // groq default
+  return order.map((k) => providers[k]).filter((p): p is ProviderAttempt => p != null);
+}
+
 /** Runs the Rutgers agent (tool loop) and returns a plain-text stream for the chat UI. */
 export async function runRutgersOracleAgentStream(params: AgentRunParams): Promise<{
   stream: ReadableStream<Uint8Array>;
@@ -350,45 +391,30 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
     };
   }
 
-  if (mode === "groq") {
-    const apiKey = process.env.GROQ_API_KEY;
-    const model = getGroqModel();
-    if (!apiKey) {
-      return {
-        stream: textToStream(
-          "[Agent: GROQ_API_KEY required for Groq mode. Get a free key at https://console.groq.com/keys]",
-        ),
-        modelHeader: "groq:missing-key",
-      };
-    }
-    const text = stripModelBoilerplate(await runGroqAgentLoop(params, apiKey, model));
-    return { stream: textToStream(text), modelHeader: `groq:${model}` };
-  }
-
-  if (mode === "gemini") {
-    const apiKey = process.env.GEMINI_API_KEY;
-    const model = getGeminiModel();
-    if (!apiKey) {
-      return {
-        stream: textToStream(
-          "[Agent: GEMINI_API_KEY required for Gemini mode. Get a free key at https://aistudio.google.com/apikey]",
-        ),
-        modelHeader: "gemini:missing-key",
-      };
-    }
-    const text = stripModelBoilerplate(await runGeminiAgentLoop(params, apiKey, model));
-    return { stream: textToStream(text), modelHeader: `gemini:${model}` };
-  }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // Hosted providers (groq / gemini / anthropic) with automatic fallback: try each in
+  // order; on a throttle/error, transparently fall to the next. The user never sees a raw
+  // provider error — only a real answer, or a friendly "busy" note if all are throttled.
+  const chain = buildProviderChain(params, mode);
+  if (!chain.length) {
     return {
-      stream: textToStream("[Agent: ANTHROPIC_API_KEY required for cloud mode.]"),
-      modelHeader: "anthropic:missing-key",
+      stream: textToStream(
+        "[Agent: no LLM key configured. Set GROQ_API_KEY (free at https://console.groq.com/keys), GEMINI_API_KEY, or ANTHROPIC_API_KEY in .env.local.]",
+      ),
+      modelHeader: "no-provider",
     };
   }
 
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
-  const text = stripModelBoilerplate(await runAnthropicAgentLoop(params, apiKey, model));
-  return { stream: textToStream(text), modelHeader: model };
+  const tried: string[] = [];
+  for (const provider of chain) {
+    const raw = await provider.run();
+    tried.push(provider.name);
+    if (!isProviderError(raw)) {
+      // Note in the header when a fallback (not the first choice) answered.
+      const header = tried.length > 1 ? `${provider.name} (fallback)` : provider.name;
+      return { stream: textToStream(stripModelBoilerplate(raw)), modelHeader: header };
+    }
+  }
+
+  // Every provider was throttled/unavailable — graceful, never the raw error.
+  return { stream: textToStream(FRIENDLY_BUSY), modelHeader: `busy:${tried.join("+")}` };
 }
