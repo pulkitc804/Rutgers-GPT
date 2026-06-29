@@ -86,7 +86,7 @@ const SOURCES = [
   { slug: "academic-integrity-policy", title: "Academic Integrity Policy & Violation Levels", url: "https://nbacademicintegrity.rutgers.edu/academic-integrity-policy/levels-academic-integrity-violations" },
   { slug: "grading-gpa-policy", title: "Grading, GPA & Pass/No-Credit", url: "https://catalogs.rutgers.edu/generated/nb-ug_2022/pg1455.html" },
   { slug: "withdrawal-refund", title: "Withdrawing & Tuition Refunds", url: "https://scarlethub.rutgers.edu/financial-services/eligibility/enrollment-requirements/withdrawing-from-all-courses/" },
-  { slug: "bus-routes-nb", title: "Campus Bus Routes (NB)", url: "https://ipo.rutgers.edu/transportation/buses/nb" },
+  // NOTE: bus routes are HAND-CURATED in bus-routes.md (the ipo page is JS-rendered → nav junk). Do not re-add here.
   { slug: "dining-places", title: "Places to Eat (Dining Halls)", url: "https://food.rutgers.edu/places-eat" },
 ];
 
