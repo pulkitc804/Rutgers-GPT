@@ -33,10 +33,14 @@ export async function groqChatCompletion(opts: {
   maxTokens?: number;
 }): Promise<GroqChatResult> {
   const url = `${opts.baseUrl}/chat/completions`;
+  // gpt-oss models reason internally before answering; cap that reasoning so it doesn't
+  // eat the whole token budget and return empty content. Harmless for non-gpt-oss models.
+  const isGptOss = /gpt-oss/i.test(opts.model);
   const body = {
     model: opts.model,
     messages: opts.messages,
     ...(opts.tools ? { tools: opts.tools, tool_choice: "auto" } : {}),
+    ...(isGptOss ? { reasoning_effort: "low" } : {}),
     temperature: opts.temperature ?? 0.4,
     max_tokens: opts.maxTokens ?? 2048,
   };

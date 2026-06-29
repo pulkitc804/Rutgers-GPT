@@ -300,7 +300,7 @@ async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: s
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature, maxTokens: 1200 });
+    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature, maxTokens: 2200 });
     if (!res.ok) return `[Groq: ${res.error}]`;
 
     const msg = res.message;
@@ -409,6 +409,7 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
   for (const provider of chain) {
     const raw = await provider.run();
     tried.push(provider.name);
+    console.warn(`[provider-chain] ${provider.name}: ${isProviderError(raw) ? "FAIL → " + raw.slice(0, 130) : "OK"}`);
     if (!isProviderError(raw)) {
       // Note in the header when a fallback (not the first choice) answered.
       const header = tried.length > 1 ? `${provider.name} (fallback)` : provider.name;

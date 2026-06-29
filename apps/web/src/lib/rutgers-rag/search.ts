@@ -20,11 +20,15 @@ export async function searchRutgersKnowledge(params: {
     const dTokens = tokenize(`${chunk.title} ${chunk.text} ${chunk.tags.join(" ")}`);
     let score = scoreTokens(qTokens, dTokens);
     // Strong title-match boost so a topical doc ("Mathematics Major Requirements")
-    // wins over an incidental mention in a long unrelated page.
-    const titleSet = new Set(tokenize(chunk.title));
+    // wins over an incidental mention in a long unrelated page. Substring-aware so
+    // "math" matches "mathematics".
+    const titleToks = tokenize(chunk.title);
     let titleHits = 0;
-    for (const q of qTokens) if (titleSet.has(q)) titleHits += 1;
-    score += titleHits * 0.6;
+    for (const q of qTokens) {
+      if (titleToks.includes(q)) titleHits += 1;
+      else if (titleToks.some((d) => d.includes(q) || q.includes(d))) titleHits += 0.6;
+    }
+    score += titleHits * 0.7;
     if (params.campus && chunk.campus === params.campus) score += 0.15;
     if (score > 0.2) hits.push({ chunk, score });
   }
