@@ -10,6 +10,7 @@ import { resolveTermPlan } from "@/lib/resolve-term-plan";
 import { runRutgersAgentTool } from "@/lib/rutgers-tool-runner";
 import { wantsCsFirstYearTemplate } from "@rutgers-gpt/shared/ai/course-parser";
 import { formatRagHitsForAgent, searchRutgersKnowledge } from "@/lib/rutgers-rag/search";
+import { vectorSearchKnowledge } from "@/lib/rutgers-rag/vector-search";
 import { lookupRutgersOfficial } from "@/lib/rutgers-web-lookup";
 import { rerankWithOllamaEmbeddings } from "@/lib/rutgers-rag/embed-ollama";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
@@ -122,9 +123,15 @@ export async function POST(req: Request) {
         lastRaw,
       );
     if (ragKeywordHit || (!actionPrefetch && lastRaw.trim().length > 6)) {
-      let hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
-      hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
-      const ragStrong = hits.length > 0 && hits[0].score >= 1.5;
+      // Semantic search first (Gemini embeddings, cosine ~0–1); keyword fallback if the
+      // embedding index or query-embed is unavailable so retrieval never hard-fails.
+      let hits = await vectorSearchKnowledge(lastRaw, 5);
+      let ragStrong = hits.length > 0 && hits[0].score >= 0.62;
+      if (!hits.length) {
+        hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
+        hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
+        ragStrong = hits.length > 0 && hits[0].score >= 1.5;
+      }
 
       if (ragStrong) {
         contextParts.push(
