@@ -50,7 +50,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "search_rutgers_web",
     description:
-      "Fetch an official rutgers.edu page live for dates/deadlines/offices/policies (academic calendar, registrar, financial aid, tuition, parking, libraries, IT, advising, health, housing). Use BEFORE saying you don't know an official detail.",
+      "Live web search of Rutgers for ANY question — searches official rutgers.edu pages and reads them, returning real excerpts. Use this for anything you don't already have grounded data for (any office, program, policy, deadline, building, club, professor, service, how-to, etc.) BEFORE saying you don't know. This is your general lookup tool — prefer it over guessing.",
     parameters: {
       type: "object",
       properties: {
