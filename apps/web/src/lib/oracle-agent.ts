@@ -1,17 +1,29 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
-import { toAnthropicTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
+import { toAnthropicTools, toGeminiTools, toGroqTools, toOllamaTools } from "@rutgers-gpt/shared/ai/agent-tools";
 import { formatStudentProfileBlock, type RutgersStudentProfile } from "@rutgers-gpt/shared/ai/student-profile";
 import type { RutgersInsightContext } from "@rutgers-gpt/shared/ai";
 import { normalizeAnthropicTurns } from "@/lib/anthropic-messages";
 import { createOllamaChatTextStream, ollamaChatRaw } from "@/lib/ollama-oracle";
+import { geminiGenerateContent, type GeminiContent, type GeminiPart } from "@/lib/gemini-oracle";
+import { groqChatCompletion, type GroqMessage } from "@/lib/groq-oracle";
 import { OLLAMA_FINAL_SYNTHESIS_USER } from "@/lib/agent-execution-contract";
 import {
   getAnthropicTemperature,
+  getCerebrasBaseUrl,
+  getCerebrasModel,
+  getCerebrasTemperature,
+  getGeminiBaseUrl,
+  getGeminiModel,
+  getGeminiTemperature,
+  getGroqBaseUrl,
+  getGroqModel,
+  getGroqTemperature,
   getOllamaBaseUrl,
   getOllamaGenerationOptions,
   getOllamaModel,
   getOracleLlmMode,
+  type OracleLlmMode,
 } from "@/lib/oracle-llm-config";
 import { runRutgersAgentTool, type ToolRunContext } from "@/lib/rutgers-tool-runner";
 
@@ -30,9 +42,12 @@ type AgentRunParams = {
   lastUserContent: string;
   executionContract?: string;
   prefetchedTools?: PrefetchedToolResult[];
+  /** Server already injected enough grounding → answer in one call, drop tool schemas. */
+  prefetchSatisfied?: boolean;
 };
 
-const TOOL_RESULT_MAX_CHARS = 7000;
+// Kept modest so a turn fits the tight free-tier token-per-minute limit (Groq free = 8k TPM; lifted on the paid Developer tier).
+const TOOL_RESULT_MAX_CHARS = 2800;
 
 function truncateToolResult(text: string): string {
   if (text.length <= TOOL_RESULT_MAX_CHARS) return text;
@@ -55,20 +70,23 @@ function buildOllamaUserTurn(params: AgentRunParams): string {
 
 function buildAgentSystemPrompt(base: string, profile?: RutgersStudentProfile): string {
   const profileBlock = formatStudentProfileBlock(profile);
-  const agentDirective = [
-    "",
-    "---",
-    "Agent mode (active):",
-    "You are a dedicated Rutgers student agent with tools + RAG knowledge + persistent student memory.",
-    "Scope: Rutgers–New Brunswick only (College Ave, Busch, Livingston, Cook/Douglass). Do not advise on Newark or Camden. Use search_rutgers_knowledge for policies, campuses, buildings, Canvas help.",
-    "For dining halls or which campus a building is on: call get_dining_menu or search_rutgers_knowledge — never guess (Atrium = College Avenue / College Ave Student Center per food.rutgers.edu).",
-    "Use plan_term_schedule for ANY major/year — student course list from profile (double/triple major = one combined list) — never generic link dumps.",
-    "Use get_canvas_guidance, get_campus_events, get_campus_info, get_live_transit (all saved stops) as needed.",
-    "Repeat only facts present in tool JSON (verified, primarySource, fetchedAt). Cite official URLs when stating locations or menus.",
-    "Respect persistent memory facts and enrolled courses from the profile block.",
-    profileBlock ? `\n${profileBlock}` : "",
-  ].join("\n");
-  return base + agentDirective;
+  // Scope/tools/anti-hallucination already live in the base prompt; keep this minimal to save tokens.
+  return profileBlock ? `${base}\n\n---\nStudent profile:\n${profileBlock}` : base;
+}
+
+/**
+ * Deterministic anti-slop pass: strip any model-emitted "Truth confidence:" line
+ * (small models keep adding it despite the prompt). Belt-and-suspenders with the
+ * system prompt + execution contract. See SECURITY-PLAN P1-6.
+ */
+function stripModelBoilerplate(text: string): string {
+  return text
+    .replace(/^\s*[*_-]*\s*Truth confidence:.*$/gim, "")
+    // gpt-oss citation artifacts like 【2†excerpt】 / 【3†L1-L4】
+    .replace(/【[^】]*】/g, "")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function textToStream(text: string): ReadableStream<Uint8Array> {
@@ -221,6 +239,173 @@ async function runAnthropicAgentLoop(params: AgentRunParams, apiKey: string, mod
   return "I hit the tool step limit — ask again with a narrower question.";
 }
 
+async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
+  const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
+  const tools = params.prefetchSatisfied ? undefined : toGeminiTools();
+  const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
+  const baseUrl = getGeminiBaseUrl();
+  const temperature = getGeminiTemperature();
+
+  const contents: GeminiContent[] = [
+    ...params.messages.slice(0, -1).map(
+      (m): GeminiContent => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }),
+    ),
+    { role: "user", parts: [{ text: buildOllamaUserTurn(params) }] },
+  ];
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const res = await geminiGenerateContent({
+      baseUrl,
+      apiKey,
+      model,
+      systemInstruction: system,
+      contents,
+      tools,
+      temperature,
+    });
+    if (!res.ok) return `[Gemini: ${res.error}]`;
+
+    if (!res.functionCalls.length) {
+      return res.text || "(No text returned)";
+    }
+
+    // Echo the model's function-call turn back, then answer each call.
+    if (res.content) contents.push(res.content);
+    const responseParts: GeminiPart[] = [];
+    for (const fc of res.functionCalls) {
+      const result = await runRutgersAgentTool(
+        fc.name as Parameters<typeof runRutgersAgentTool>[0],
+        (fc.args ?? {}) as Record<string, unknown>,
+        ctx,
+      );
+      responseParts.push({
+        functionResponse: { name: fc.name, response: { result: truncateToolResult(result) } },
+      });
+    }
+    contents.push({ role: "user", parts: responseParts });
+  }
+
+  return "I hit the tool step limit — ask again with a narrower question.";
+}
+
+/** Generic OpenAI-compatible tool-loop — used by both Groq and Cerebras (same wire format). */
+async function runOpenAICompatibleAgentLoop(
+  params: AgentRunParams,
+  apiKey: string,
+  opts: { baseUrl: string; model: string; temperature: number; label: string },
+): Promise<string> {
+  const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
+  // When the server already injected grounding, drop tool schemas (~1k tokens) and force a
+  // single synthesis call — the model answers from context instead of a 2nd tool round.
+  const tools = params.prefetchSatisfied ? undefined : toGroqTools();
+  const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
+
+  const messages: GroqMessage[] = [
+    { role: "system", content: system },
+    ...params.messages.slice(0, -1).map((m): GroqMessage => ({ role: m.role, content: m.content })),
+    { role: "user", content: buildOllamaUserTurn(params) },
+  ];
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const res = await groqChatCompletion({
+      baseUrl: opts.baseUrl,
+      apiKey,
+      model: opts.model,
+      messages,
+      tools,
+      temperature: opts.temperature,
+      maxTokens: 2200,
+    });
+    if (!res.ok) return `[${opts.label}: ${res.error}]`;
+
+    const msg = res.message;
+    const toolCalls = msg.tool_calls;
+    if (!toolCalls?.length) {
+      return (msg.content ?? "").trim() || "(No text returned)";
+    }
+
+    messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: toolCalls });
+    for (const tc of toolCalls) {
+      const result = await runRutgersAgentTool(
+        tc.function?.name as Parameters<typeof runRutgersAgentTool>[0],
+        parseToolArgs(tc.function?.arguments),
+        ctx,
+      );
+      messages.push({ role: "tool", tool_call_id: tc.id, content: truncateToolResult(result) });
+    }
+  }
+
+  return "I hit the tool step limit — ask again with a narrower question.";
+}
+
+/** A failed provider run is marked with a `[Provider: ...]` prefix or empty text. */
+function isProviderError(text: string): boolean {
+  const t = text.trim();
+  if (!t || t === "(No text returned)") return true;
+  return /^\[(Cerebras|Groq|Gemini|Anthropic|Ollama|Agent):/i.test(t);
+}
+
+/** Shown only when EVERY available free provider is throttled/unavailable. Never a raw error. */
+const FRIENDLY_BUSY =
+  "I'm getting a burst of questions right now and hit a quick free-tier limit. Give me about 15 seconds and ask again — your answer will come right through.";
+
+type ProviderAttempt = { name: string; run: () => Promise<string> };
+
+/** Build the ordered provider chain: selected mode first, other configured providers as fallback. */
+function buildProviderChain(params: AgentRunParams, mode: OracleLlmMode): ProviderAttempt[] {
+  const cerebrasKey = process.env.CEREBRAS_API_KEY?.trim();
+  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+
+  const providers: Record<string, ProviderAttempt | null> = {
+    cerebras: cerebrasKey
+      ? {
+          name: `cerebras:${getCerebrasModel()}`,
+          run: () =>
+            runOpenAICompatibleAgentLoop(params, cerebrasKey, {
+              baseUrl: getCerebrasBaseUrl(),
+              model: getCerebrasModel(),
+              temperature: getCerebrasTemperature(),
+              label: "Cerebras",
+            }),
+        }
+      : null,
+    groq: groqKey
+      ? {
+          name: `groq:${getGroqModel()}`,
+          run: () =>
+            runOpenAICompatibleAgentLoop(params, groqKey, {
+              baseUrl: getGroqBaseUrl(),
+              model: getGroqModel(),
+              temperature: getGroqTemperature(),
+              label: "Groq",
+            }),
+        }
+      : null,
+    gemini: geminiKey
+      ? { name: `gemini:${getGeminiModel()}`, run: () => runGeminiAgentLoop(params, geminiKey, getGeminiModel()) }
+      : null,
+    anthropic: anthropicKey
+      ? {
+          name: process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+          run: () => runAnthropicAgentLoop(params, anthropicKey, process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest"),
+        }
+      : null,
+  };
+
+  // Primary by mode, then the rest as fallback. Cerebras (highest free limits) leads by default.
+  const order =
+    mode === "gemini" ? ["gemini", "cerebras", "groq", "anthropic"]
+    : mode === "anthropic" ? ["anthropic", "cerebras", "groq", "gemini"]
+    : mode === "groq" ? ["groq", "cerebras", "gemini", "anthropic"]
+    : ["cerebras", "groq", "gemini", "anthropic"]; // cerebras default
+  return order.map((k) => providers[k]).filter((p): p is ProviderAttempt => p != null);
+}
+
 /** Runs the Rutgers agent (tool loop) and returns a plain-text stream for the chat UI. */
 export async function runRutgersOracleAgentStream(params: AgentRunParams): Promise<{
   stream: ReadableStream<Uint8Array>;
@@ -249,15 +434,31 @@ export async function runRutgersOracleAgentStream(params: AgentRunParams): Promi
     };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // Hosted providers (groq / gemini / anthropic) with automatic fallback: try each in
+  // order; on a throttle/error, transparently fall to the next. The user never sees a raw
+  // provider error — only a real answer, or a friendly "busy" note if all are throttled.
+  const chain = buildProviderChain(params, mode);
+  if (!chain.length) {
     return {
-      stream: textToStream("[Agent: ANTHROPIC_API_KEY required for cloud mode.]"),
-      modelHeader: "anthropic:missing-key",
+      stream: textToStream(
+        "[Agent: no LLM key configured. Set GROQ_API_KEY (free at https://console.groq.com/keys), GEMINI_API_KEY, or ANTHROPIC_API_KEY in .env.local.]",
+      ),
+      modelHeader: "no-provider",
     };
   }
 
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest";
-  const text = await runAnthropicAgentLoop(params, apiKey, model);
-  return { stream: textToStream(text), modelHeader: model };
+  const tried: string[] = [];
+  for (const provider of chain) {
+    const raw = await provider.run();
+    tried.push(provider.name);
+    console.warn(`[provider-chain] ${provider.name}: ${isProviderError(raw) ? "FAIL → " + raw.slice(0, 130) : "OK"}`);
+    if (!isProviderError(raw)) {
+      // Note in the header when a fallback (not the first choice) answered.
+      const header = tried.length > 1 ? `${provider.name} (fallback)` : provider.name;
+      return { stream: textToStream(stripModelBoilerplate(raw)), modelHeader: header };
+    }
+  }
+
+  // Every provider was throttled/unavailable — graceful, never the raw error.
+  return { stream: textToStream(FRIENDLY_BUSY), modelHeader: `busy:${tried.join("+")}` };
 }

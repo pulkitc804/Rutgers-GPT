@@ -34,7 +34,7 @@ export function buildExecutionContract(intent: AgentActionIntent, opts?: { hasPr
   }
 
   lines.push(
-    "- Format: 1–2 sentence lead, ### sections with bullets, ### Next steps (max 3 actions), one Truth confidence line.",
+    "- Style: answer like a sharp upperclassman texting a friend — natural prose, lead with the answer. NO forced ### headers, NO mandatory \"Next steps\" section, and NEVER print a \"Truth confidence:\" line. Use light Markdown only when a multi-part answer (like a schedule) genuinely needs it.",
   );
 
   return lines.join("\n");
@@ -46,6 +46,5 @@ export const OLLAMA_FINAL_SYNTHESIS_USER = [
   "If they asked about schedules: briefly explain SOC = Rutgers Schedule of Classes (live section data from sis.rutgers.edu), then give YOUR synthesized plan.",
   "Include specific course codes, section numbers/indexes, meeting times, or ETAs when the data provides them.",
   "Personalize using their major, home campus, and course list from the profile when available.",
-  "Do not output labels like \"Lead\" or \"Body\" — use real Markdown headers (###).",
-  "End with exactly one line: Truth confidence: <High|Medium|Low> — <reason>",
+  "Write naturally, like a sharp upperclassman — NOT a template. No \"Lead\"/\"Body\" labels, no forced ### headers, no mandatory \"Next steps\" section, and NEVER end with a \"Truth confidence:\" line. Use light Markdown (a short header or a few bullets) only for genuinely multi-part answers like a weekly schedule.",
 ].join("\n");

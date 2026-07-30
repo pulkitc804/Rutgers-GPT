@@ -18,7 +18,8 @@
     "./ai/cs-first-year-nb": "./src/ai/cs-first-year-nb.ts",
     "./ai/planner-types": "./src/ai/planner-types.ts",
     "./ai/nb-scope": "./src/ai/nb-scope.ts",
-    "./ai/verified-sources": "./src/ai/verified-sources.ts"
+    "./ai/verified-sources": "./src/ai/verified-sources.ts",
+    "./net": "./src/net/http.ts"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

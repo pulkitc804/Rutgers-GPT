@@ -13,6 +13,7 @@ export const RUTGERS_AGENT_TOOL_NAMES = [
   "plan_term_schedule",
   "plan_multi_course_schedule",
   "search_rutgers_knowledge",
+  "search_rutgers_web",
   "get_canvas_guidance",
   "get_campus_events",
   "get_campus_info",
@@ -47,6 +48,19 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
     },
   },
   {
+    name: "search_rutgers_web",
+    description:
+      "Live web search of Rutgers for ANY question — searches official rutgers.edu pages and reads them, returning real excerpts. Use this for anything you don't already have grounded data for (any office, program, policy, deadline, building, club, professor, service, how-to, etc.) BEFORE saying you don't know. This is your general lookup tool — prefer it over guessing.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look up, e.g. 'summer session 2 dates' or 'spring add/drop deadline'" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_live_transit",
     description:
       "Fetch live Passio GO bus ETAs. Use favorite stop and secondary stops from student profile when stopId omitted.",
@@ -62,7 +76,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "get_dining_menu",
     description:
-      "Fetch today's menu from Rutgers Dining FoodPro (official menuportal23 HTML). Returns verified.campus from the preset registry — use that for location, not model memory. Presets: atrium (College Avenue / College Ave Student Center), livingston-dining (Livingston).",
+      "Today's FoodPro menu. Use verified.campus for location (not memory). Presets: atrium (College Avenue), livingston-dining (Livingston).",
     parameters: {
       type: "object",
       properties: {
@@ -92,7 +106,7 @@ export const RUTGERS_AGENT_TOOLS: RutgersAgentToolSpec[] = [
   {
     name: "plan_term_schedule",
     description:
-      "Universal term schedule planner for ANY major and ANY year. Fetches live SOC for each course, builds conflict-aware weekly grid. Uses student profile course list + optional courses arg. Optional track=cs-first-year only when user wants the CS freshman template and listed no courses. Double/triple major: pass ALL courses in one list.",
+      "Universal term planner (any major/year). Fetches live SOC per course, builds a conflict-aware weekly grid. Uses profile courses + optional courses arg. track=cs-first-year only for the CS freshman template when no courses listed.",
     parameters: {
       type: "object",
       properties: {
@@ -222,4 +236,50 @@ export function toOllamaTools() {
       parameters: t.parameters,
     },
   }));
+}
+
+/**
+ * Gemini accepts only a subset of OpenAPI schema; `additionalProperties` (which our
+ * specs use) is rejected. Strip it recursively while preserving type/properties/
+ * required/enum/items/description.
+ */
+function stripUnsupportedSchemaKeys(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(stripUnsupportedSchemaKeys);
+  if (schema && typeof schema === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+      if (k === "additionalProperties") continue;
+      out[k] = stripUnsupportedSchemaKeys(v);
+    }
+    return out;
+  }
+  return schema;
+}
+
+/**
+ * Groq (OpenAI-compatible) tools. Llama on Groq can fail function generation when
+ * schemas carry `additionalProperties`; strip it (same dialect issue as Gemini).
+ */
+export function toGroqTools() {
+  return RUTGERS_AGENT_TOOLS.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: stripUnsupportedSchemaKeys(t.parameters),
+    },
+  }));
+}
+
+/** Gemini function-calling tools: a single tool block with all functionDeclarations. */
+export function toGeminiTools() {
+  return [
+    {
+      functionDeclarations: RUTGERS_AGENT_TOOLS.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: stripUnsupportedSchemaKeys(t.parameters),
+      })),
+    },
+  ];
 }

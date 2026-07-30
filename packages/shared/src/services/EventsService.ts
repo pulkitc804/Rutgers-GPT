@@ -1,6 +1,7 @@
 /**
  * Rutgers campus events — best-effort fetch from public events site.
  */
+import { fetchWithGuard, readTextCapped } from "../net/http";
 
 export type CampusEvent = {
   title: string;
@@ -54,12 +55,15 @@ export const EventsService = {
     const fetchedAt = new Date().toISOString();
     for (const url of EVENT_SOURCES) {
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithGuard(url, {
+          label: "Events",
+          timeoutMs: 6000,
+          retries: 1,
           headers: { Accept: "application/json", "User-Agent": "RutgersGPT/1.0" },
           cache: "no-store",
         });
         if (!res.ok) continue;
-        const json = await res.json();
+        const json = JSON.parse(await readTextCapped(res, 3_000_000, "Events"));
         let events = parseEventsPayload(json);
         if (campus) {
           const c = campus.toLowerCase();

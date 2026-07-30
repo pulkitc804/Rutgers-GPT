@@ -1,4 +1,5 @@
 import { resolveTermPlan } from "@/lib/resolve-term-plan";
+import { lookupRutgersOfficial } from "@/lib/rutgers-web-lookup";
 import { formatRagHitsForAgent, searchRutgersKnowledge } from "@/lib/rutgers-rag/search";
 import { rerankWithOllamaEmbeddings } from "@/lib/rutgers-rag/embed-ollama";
 import {
@@ -93,6 +94,12 @@ export async function runRutgersAgentTool(
           null,
           2,
         );
+      }
+      case "search_rutgers_web": {
+        const query = typeof args.query === "string" ? args.query : "";
+        if (!query.trim()) return JSON.stringify({ error: "query required" });
+        const lookup = await lookupRutgersOfficial(query);
+        return JSON.stringify(lookup, null, 2);
       }
       case "get_live_transit": {
         const routeId = typeof args.routeId === "string" ? args.routeId : undefined;

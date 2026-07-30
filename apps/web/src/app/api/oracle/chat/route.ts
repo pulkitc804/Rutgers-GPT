@@ -10,6 +10,8 @@ import { resolveTermPlan } from "@/lib/resolve-term-plan";
 import { runRutgersAgentTool } from "@/lib/rutgers-tool-runner";
 import { wantsCsFirstYearTemplate } from "@rutgers-gpt/shared/ai/course-parser";
 import { formatRagHitsForAgent, searchRutgersKnowledge } from "@/lib/rutgers-rag/search";
+import { vectorSearchKnowledge } from "@/lib/rutgers-rag/vector-search";
+import { lookupRutgersOfficial } from "@/lib/rutgers-web-lookup";
 import { rerankWithOllamaEmbeddings } from "@/lib/rutgers-rag/embed-ollama";
 import { formatTruthLayerBlock, type TruthLayerSource } from "@rutgers-gpt/shared/ai/confidence";
 import { detectVerifiedTopics, formatVerifiedFactsBlock } from "@rutgers-gpt/shared/ai/verified-sources";
@@ -59,6 +61,12 @@ function termLabelFromCode(term: number): string {
 }
 
 export async function POST(req: Request) {
+  // Reject oversized payloads before parsing (bounds worst-case tokens/memory per request).
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (contentLength > 32_000) {
+    return NextResponse.json({ error: "Request too large" }, { status: 413 });
+  }
+
   const mode = getOracleLlmMode();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (mode === "anthropic" && !apiKey) {
@@ -94,6 +102,10 @@ export async function POST(req: Request) {
 
     const contextParts: string[] = [];
     const prefetchedTools: PrefetchedToolResult[] = [];
+    // True once the server has injected enough grounding (RAG/search/tool results) that the
+    // model can answer in ONE call without calling tools itself — lets us drop the tool
+    // schemas for that turn (~1k tokens saved, keeps us under the free-tier minute).
+    let prefetchSatisfied = false;
 
     const verifiedTopics = detectVerifiedTopics(lastRaw);
     if (verifiedTopics.length) {
@@ -108,16 +120,67 @@ export async function POST(req: Request) {
       );
     }
 
-    if (
-      /\b(campus|building|hours|library|canvas|policy|atrium|dining|meal|food|livi|livingston|busch|cook|douglass|college ave|degree|major)\b/i.test(
+    // Prefetch RAG for any non-action question (transit/dining/schedule are prefetched
+    // separately below). Injecting hits lets the model answer in ONE call instead of
+    // calling search_rutgers_knowledge itself — critical under tight free-tier token limits.
+    const actionPrefetch = intent.transit || intent.dining || intent.schedule.match;
+    const ragKeywordHit =
+      /\b(campus|building|hours|library|canvas|policy|atrium|dining|meal|food|livi|livingston|busch|cook|douglass|college ave|degree|major|financial aid|tuition|fee|bill|payment|refund|housing|dorm|parking|netid|advising|tutoring|career|health|caps|registrar|transcript|graduation|deadline|register)\b/i.test(
         lastRaw,
-      )
-    ) {
-      let hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
-      hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
-      if (hits.length) {
-        contextParts.push("RUTGERS_KNOWLEDGE (RAG — cite when relevant):", formatRagHitsForAgent(hits));
+      );
+    if (ragKeywordHit || (!actionPrefetch && lastRaw.trim().length > 6)) {
+      // Semantic search first (Gemini embeddings, cosine ~0–1); keyword fallback if the
+      // embedding index or query-embed is unavailable so retrieval never hard-fails.
+      let hits = await vectorSearchKnowledge(lastRaw, 5);
+      let ragStrong = hits.length > 0 && hits[0].score >= 0.62;
+      if (!hits.length) {
+        hits = await searchRutgersKnowledge({ query: lastRaw, campus: "NB", limit: 5 });
+        hits = await rerankWithOllamaEmbeddings(lastRaw, hits);
+        ragStrong = hits.length > 0 && hits[0].score >= 1.5;
       }
+
+      if (ragStrong) {
+        contextParts.push(
+          "RUTGERS_KNOWLEDGE (RAG — answer from this and cite the Source URL; do NOT call search_rutgers_knowledge again):",
+          formatRagHitsForAgent(hits),
+        );
+      } else if (!actionPrefetch) {
+        // RAG had no strong hit → do a LIVE web search here on the server and inject the
+        // results, so the model answers in ONE call. (A model-initiated tool call would be
+        // a 2nd round, and two calls/turn blow the free-tier token-per-minute limit.)
+        let injected = false;
+        try {
+          const lookup = await lookupRutgersOfficial(lastRaw);
+          if (lookup.results.length) {
+            const block = lookup.results
+              .map((r, i) => `[${i + 1}] ${r.title} (Source: ${r.url})\n${r.excerpt}`)
+              .join("\n\n---\n\n")
+              .slice(0, 4500);
+            contextParts.push(
+              "RUTGERS_WEB_SEARCH (live results — write a thorough, specific answer from these and cite the Source url(s); do NOT call search_rutgers_web again. If the exact fact isn't here, say so and link the most relevant page):",
+              block,
+            );
+            injected = true;
+          }
+        } catch {
+          /* search failed — fall through to RAG/abstain */
+        }
+        if (!injected && hits.length) {
+          contextParts.push(
+            "RUTGERS_KNOWLEDGE (RAG — partial match; answer what's supported and link the official page):",
+            formatRagHitsForAgent(hits),
+          );
+        }
+      } else if (hits.length) {
+        contextParts.push(
+          "RUTGERS_KNOWLEDGE (RAG — answer from this and cite the Source URL; do NOT call search_rutgers_knowledge again):",
+          formatRagHitsForAgent(hits),
+        );
+      }
+    }
+    // If we injected any grounding above, the model can answer in one call without tools.
+    if (contextParts.some((p) => p.startsWith("RUTGERS_KNOWLEDGE") || p.startsWith("RUTGERS_WEB_SEARCH"))) {
+      prefetchSatisfied = true;
     }
 
     let directScheduleText: string | null = null;
@@ -169,7 +232,14 @@ export async function POST(req: Request) {
         }
       }
 
-      prefetchedTools.push({ name: "plan_term_schedule", content: JSON.stringify(plan).slice(0, 12_000) });
+      // The readable plan is already injected above as PRECOMPUTED_SOC_PLAN. Don't also dump the
+      // raw 12k-char JSON (the model never reads it — it just burns ~3k tokens and throttles the
+      // free-tier minute). Just signal the tool already ran so the model doesn't re-call it.
+      prefetchedTools.push({
+        name: "plan_term_schedule",
+        content:
+          "Already executed on the server — use PRECOMPUTED_SOC_PLAN above. Do NOT call plan_term_schedule again; synthesize the reply from that plan.",
+      });
     }
 
     const toolCtx = { profile: body.studentProfile, liveSnapshot: body.context };
@@ -220,6 +290,7 @@ export async function POST(req: Request) {
       lastUserContent,
       executionContract,
       prefetchedTools,
+      prefetchSatisfied: prefetchSatisfied || prefetchedTools.length > 0,
     });
 
     return new Response(stream, {

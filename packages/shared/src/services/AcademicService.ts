@@ -1,6 +1,8 @@
 /**
  * Rutgers Schedule of Classes JSON (sis.rutgers.edu → classes.rutgers.edu).
  */
+import { fetchWithGuard, FetchGuardError, readTextCapped } from "../net/http";
+
 /** Primary SOC JSON host (sis.rutgers.edu redirects here). */
 export const SOC_JSON_URL = "https://classes.rutgers.edu/soc/api/courses.json";
 
@@ -149,29 +151,28 @@ export const AcademicService = {
 
   async fetchCourses(q: SocCourseQuery): Promise<SocCourse[]> {
     const qs = this.buildQueryString(q);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 28_000);
     try {
-      const res = await fetch(`${SOC_JSON_URL}?${qs}`, {
+      const res = await fetchWithGuard(`${SOC_JSON_URL}?${qs}`, {
+        label: "SOC",
+        timeoutMs: 10_000,
+        retries: 2,
         credentials: "omit",
         redirect: "follow",
-        signal: controller.signal,
         headers: {
           Accept: "application/json",
           "User-Agent": "RutgersGPT/1.0 (SOC schedule planner; +https://rutgers.edu)",
         },
       });
       if (!res.ok) throw new Error(`SOC request failed: ${res.status}`);
-      const data = (await res.json()) as SocCourse[];
+      // SOC returns the entire campus/term catalog (filtered below), which is large.
+      const data = JSON.parse(await readTextCapped(res, 64_000_000, "SOC")) as SocCourse[];
       if (!Array.isArray(data)) throw new Error("SOC response was not a course array");
       return this.filterCoursesToQuery(data, q);
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
+      if (e instanceof FetchGuardError && e.timedOut) {
         throw new Error("SOC request timed out — try again or open SOC in your browser");
       }
       throw e;
-    } finally {
-      clearTimeout(timeout);
     }
   },
 
