@@ -13,6 +13,9 @@ import {
   getGroqBaseUrl,
   getGroqModel,
   getGroqTemperature,
+  getCerebrasBaseUrl,
+  getCerebrasModel,
+  getCerebrasTemperature,
 } from "@/lib/oracle-llm-config";
 import {
   aggregateTruthConfidence,
@@ -102,11 +105,16 @@ export async function POST(req: Request) {
       return NextResponse.json(result);
     }
 
-    if (mode === "groq") {
-      const groqKey = process.env.GROQ_API_KEY;
-      if (!groqKey) {
+    if (mode === "cerebras" || mode === "groq") {
+      const isCerebras = mode === "cerebras";
+      const apiKey = isCerebras ? process.env.CEREBRAS_API_KEY : process.env.GROQ_API_KEY;
+      if (!apiKey) {
         return NextResponse.json(
-          { error: "ORACLE_LLM=groq requires GROQ_API_KEY (free at https://console.groq.com/keys)." },
+          {
+            error: isCerebras
+              ? "ORACLE_LLM=cerebras requires CEREBRAS_API_KEY (free at https://cloud.cerebras.ai)."
+              : "ORACLE_LLM=groq requires GROQ_API_KEY (free at https://console.groq.com/keys).",
+          },
           { status: 503 },
         );
       }
@@ -126,14 +134,14 @@ export async function POST(req: Request) {
       ].join("\n");
 
       const groq = await groqChatCompletion({
-        baseUrl: getGroqBaseUrl(),
-        apiKey: groqKey,
-        model: getGroqModel(),
+        baseUrl: isCerebras ? getCerebrasBaseUrl() : getGroqBaseUrl(),
+        apiKey,
+        model: isCerebras ? getCerebrasModel() : getGroqModel(),
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPayload },
         ],
-        temperature: getGroqTemperature(),
+        temperature: isCerebras ? getCerebrasTemperature() : getGroqTemperature(),
       });
       if (!groq.ok) {
         return NextResponse.json({ error: groq.error }, { status: 502 });

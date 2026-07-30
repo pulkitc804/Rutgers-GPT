@@ -1,13 +1,15 @@
-export type OracleLlmMode = "anthropic" | "ollama" | "gemini" | "groq";
+export type OracleLlmMode = "anthropic" | "ollama" | "gemini" | "groq" | "cerebras";
 
 /**
  * Resolves which backend powers Oracle chat + insights.
  *
- * - `ORACLE_LLM=ollama` → always Ollama (`OLLAMA_BASE_URL`, default http://127.0.0.1:11434).
- * - `ORACLE_LLM=anthropic` → always Anthropic (requires `ANTHROPIC_API_KEY`).
- * - `ORACLE_LLM=gemini` → always Google Gemini (requires `GEMINI_API_KEY`; free tier).
- * - `ORACLE_LLM=groq` → always Groq (requires `GROQ_API_KEY`; free tier, Llama 3.3 70B).
- * - Unset → Groq, then Gemini, then Anthropic if their key is set, otherwise **local Ollama**.
+ * - `ORACLE_LLM=cerebras` → Cerebras (requires `CEREBRAS_API_KEY`; free tier: gpt-oss-120b,
+ *   ~1M tokens/day, ~60k+ tokens/MINUTE — the best free option, no throttle wall).
+ * - `ORACLE_LLM=groq` → Groq (`GROQ_API_KEY`; free but 8k TPM).
+ * - `ORACLE_LLM=gemini` → Google Gemini (`GEMINI_API_KEY`; free tier).
+ * - `ORACLE_LLM=anthropic` → Anthropic (`ANTHROPIC_API_KEY`; paid).
+ * - `ORACLE_LLM=ollama` → local Ollama.
+ * - Unset → Cerebras, then Groq, then Gemini, then Anthropic if keyed, else local Ollama.
  */
 export function getOracleLlmMode(): OracleLlmMode {
   const v = (process.env.ORACLE_LLM ?? "").toLowerCase().trim();
@@ -15,10 +17,34 @@ export function getOracleLlmMode(): OracleLlmMode {
   if (v === "anthropic") return "anthropic";
   if (v === "gemini") return "gemini";
   if (v === "groq") return "groq";
+  if (v === "cerebras") return "cerebras";
+  if (process.env.CEREBRAS_API_KEY?.trim()) return "cerebras";
   if (process.env.GROQ_API_KEY?.trim()) return "groq";
   if (process.env.GEMINI_API_KEY?.trim()) return "gemini";
   if (process.env.ANTHROPIC_API_KEY?.trim()) return "anthropic";
   return "ollama";
+}
+
+/** Base URL for Cerebras's OpenAI-compatible API. */
+export function getCerebrasBaseUrl(): string {
+  return (process.env.CEREBRAS_BASE_URL ?? "https://api.cerebras.ai/v1").replace(/\/$/, "");
+}
+
+/**
+ * Cerebras model id. Default `gpt-oss-120b` — smart, free, correct tool calls, and the free
+ * tier's ~60k+ TPM easily fits our turns (no throttle). Alternatives: llama-3.3-70b, qwen-3-235b.
+ */
+export function getCerebrasModel(): string {
+  return (process.env.CEREBRAS_MODEL ?? "gpt-oss-120b").trim() || "gpt-oss-120b";
+}
+
+/** Sampling temperature for Cerebras (default 0.4). */
+export function getCerebrasTemperature(): number {
+  const raw = process.env.CEREBRAS_TEMPERATURE?.trim();
+  if (raw === undefined || raw === "") return 0.4;
+  const n = Number(raw);
+  if (Number.isNaN(n)) return 0.4;
+  return Math.min(2, Math.max(0, n));
 }
 
 /** Base URL for Groq's OpenAI-compatible API. */

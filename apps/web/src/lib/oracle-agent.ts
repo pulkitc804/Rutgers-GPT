@@ -10,6 +10,9 @@ import { groqChatCompletion, type GroqMessage } from "@/lib/groq-oracle";
 import { OLLAMA_FINAL_SYNTHESIS_USER } from "@/lib/agent-execution-contract";
 import {
   getAnthropicTemperature,
+  getCerebrasBaseUrl,
+  getCerebrasModel,
+  getCerebrasTemperature,
   getGeminiBaseUrl,
   getGeminiModel,
   getGeminiTemperature,
@@ -288,14 +291,17 @@ async function runGeminiAgentLoop(params: AgentRunParams, apiKey: string, model:
   return "I hit the tool step limit — ask again with a narrower question.";
 }
 
-async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: string): Promise<string> {
+/** Generic OpenAI-compatible tool-loop — used by both Groq and Cerebras (same wire format). */
+async function runOpenAICompatibleAgentLoop(
+  params: AgentRunParams,
+  apiKey: string,
+  opts: { baseUrl: string; model: string; temperature: number; label: string },
+): Promise<string> {
   const system = buildAgentSystemPrompt(params.systemPrompt, params.profile);
   // When the server already injected grounding, drop tool schemas (~1k tokens) and force a
   // single synthesis call — the model answers from context instead of a 2nd tool round.
   const tools = params.prefetchSatisfied ? undefined : toGroqTools();
   const ctx: ToolRunContext = { profile: params.profile, liveSnapshot: params.liveSnapshot };
-  const baseUrl = getGroqBaseUrl();
-  const temperature = getGroqTemperature();
 
   const messages: GroqMessage[] = [
     { role: "system", content: system },
@@ -304,8 +310,16 @@ async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: s
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await groqChatCompletion({ baseUrl, apiKey, model, messages, tools, temperature, maxTokens: 2200 });
-    if (!res.ok) return `[Groq: ${res.error}]`;
+    const res = await groqChatCompletion({
+      baseUrl: opts.baseUrl,
+      apiKey,
+      model: opts.model,
+      messages,
+      tools,
+      temperature: opts.temperature,
+      maxTokens: 2200,
+    });
+    if (!res.ok) return `[${opts.label}: ${res.error}]`;
 
     const msg = res.message;
     const toolCalls = msg.tool_calls;
@@ -331,7 +345,7 @@ async function runGroqAgentLoop(params: AgentRunParams, apiKey: string, model: s
 function isProviderError(text: string): boolean {
   const t = text.trim();
   if (!t || t === "(No text returned)") return true;
-  return /^\[(Groq|Gemini|Anthropic|Ollama|Agent):/i.test(t);
+  return /^\[(Cerebras|Groq|Gemini|Anthropic|Ollama|Agent):/i.test(t);
 }
 
 /** Shown only when EVERY available free provider is throttled/unavailable. Never a raw error. */
@@ -342,13 +356,35 @@ type ProviderAttempt = { name: string; run: () => Promise<string> };
 
 /** Build the ordered provider chain: selected mode first, other configured providers as fallback. */
 function buildProviderChain(params: AgentRunParams, mode: OracleLlmMode): ProviderAttempt[] {
+  const cerebrasKey = process.env.CEREBRAS_API_KEY?.trim();
   const groqKey = process.env.GROQ_API_KEY?.trim();
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
 
   const providers: Record<string, ProviderAttempt | null> = {
+    cerebras: cerebrasKey
+      ? {
+          name: `cerebras:${getCerebrasModel()}`,
+          run: () =>
+            runOpenAICompatibleAgentLoop(params, cerebrasKey, {
+              baseUrl: getCerebrasBaseUrl(),
+              model: getCerebrasModel(),
+              temperature: getCerebrasTemperature(),
+              label: "Cerebras",
+            }),
+        }
+      : null,
     groq: groqKey
-      ? { name: `groq:${getGroqModel()}`, run: () => runGroqAgentLoop(params, groqKey, getGroqModel()) }
+      ? {
+          name: `groq:${getGroqModel()}`,
+          run: () =>
+            runOpenAICompatibleAgentLoop(params, groqKey, {
+              baseUrl: getGroqBaseUrl(),
+              model: getGroqModel(),
+              temperature: getGroqTemperature(),
+              label: "Groq",
+            }),
+        }
       : null,
     gemini: geminiKey
       ? { name: `gemini:${getGeminiModel()}`, run: () => runGeminiAgentLoop(params, geminiKey, getGeminiModel()) }
@@ -361,10 +397,12 @@ function buildProviderChain(params: AgentRunParams, mode: OracleLlmMode): Provid
       : null,
   };
 
-  // Primary by mode, then the rest (free providers first) as fallback.
-  const order = mode === "gemini" ? ["gemini", "groq", "anthropic"]
-    : mode === "anthropic" ? ["anthropic", "groq", "gemini"]
-    : ["groq", "gemini", "anthropic"]; // groq default
+  // Primary by mode, then the rest as fallback. Cerebras (highest free limits) leads by default.
+  const order =
+    mode === "gemini" ? ["gemini", "cerebras", "groq", "anthropic"]
+    : mode === "anthropic" ? ["anthropic", "cerebras", "groq", "gemini"]
+    : mode === "groq" ? ["groq", "cerebras", "gemini", "anthropic"]
+    : ["cerebras", "groq", "gemini", "anthropic"]; // cerebras default
   return order.map((k) => providers[k]).filter((p): p is ProviderAttempt => p != null);
 }
 
